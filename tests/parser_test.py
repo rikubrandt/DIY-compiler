@@ -167,3 +167,76 @@ class TestParser(unittest.TestCase):
             )
         )
 
+    def test_if_expression(self):
+        self.assertEqual(
+            parse(tokenize("if a then b")),
+            ast.IfExpression(
+                if_side=ast.Identifier("a"),
+                then=ast.Identifier("b")
+            )
+        )
+
+    def test_if_else_expression(self):
+        self.assertEqual(
+            parse(tokenize("if a then b else c")),
+            ast.IfExpression(
+                if_side=ast.Identifier("a"),
+                then=ast.Identifier("b"),
+                else_side=ast.Identifier("c")
+            )
+        )
+
+    def test_if_expression_with_addition(self):
+        self.assertEqual(
+            parse(tokenize("1 + if true then 2 else 3")),
+            ast.BinaryOp(
+                left=ast.Literal(1),
+                op="+",
+                right=ast.IfExpression(
+                    if_side=ast.Identifier("true"),
+                    then=ast.Literal(2),
+                    else_side=ast.Literal(3)
+                )
+            )
+        )
+    def test_if_expression_with_addition(self):
+        self.assertEqual(
+            parse(tokenize("1 + if true then 2 else 3")),
+            ast.BinaryOp(
+                left=ast.Literal(1),
+                op="+",
+                right=ast.IfExpression(
+                    if_side=ast.Identifier("true"),
+                    then=ast.Literal(2),
+                    else_side=ast.Literal(3)
+                )
+            )
+        )
+
+    def test_nested_if_expression(self):
+        self.assertEqual(
+            parse(tokenize("if a then if b then c else d else e")),
+            ast.IfExpression(
+                if_side=ast.Identifier("a"),
+                then=ast.IfExpression(
+                    if_side=ast.Identifier("b"),
+                    then=ast.Identifier("c"),
+                    else_side=ast.Identifier("d")
+                ),
+                else_side=ast.Identifier("e")
+            )
+        )
+
+    def test_raises_garbage(self):
+        with self.assertRaises(Exception):
+            parse(tokenize("a + b b"))
+
+    def test_empty_input(self):
+        self.assertEqual(
+            parse(tokenize("")),
+            ast.Expression
+        )
+
+    def test_incorrect_formula(self):
+        with self.assertRaises(Exception):
+            parse(tokenize("(a + b b) * (c - d) / e"))

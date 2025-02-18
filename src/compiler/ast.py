@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 @dataclass
 class Expression:
@@ -19,4 +20,9 @@ class BinaryOp(Expression):
     op: str
     right: Expression
 
+@dataclass
+class IfExpression(Expression):
+    if_side: Expression 
+    then: Expression
+    else_side: Optional[Expression] = None
 

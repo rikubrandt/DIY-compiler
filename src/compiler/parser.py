@@ -33,11 +33,29 @@ def parse(tokens: list[Token]) -> ast.Expression:
         else:
             raise Exception(f'{peek().loc}: expected an integer literal or an identifier')
 
+    def parse_if():
+        consume("if")
+        if_side = parse_expression()
+        consume("then")
+        then = parse_expression()
+        else_side = None
+        if peek().text == ("else"):
+            consume("else")
+            else_side = parse_expression()
+
+        return ast.IfExpression(
+            if_side=if_side,
+            then=then,
+            else_side=else_side
+        )
 
     def parse_identifier() -> ast.Identifier:
         token = peek()
         if token.type == "identifier":
-            consume()
+            if token.text == "if":
+                return parse_if()
+            else:
+                consume()
             return ast.Identifier(name=token.text)
         else:
             raise Exception(f"Expected literal found, {token.text}")
@@ -78,4 +96,11 @@ def parse(tokens: list[Token]) -> ast.Expression:
         
         return left
 
-    return parse_expression()
+    if len(tokens) == 0:
+        return ast.Expression
+
+    expr = parse_expression()
+
+    if pos < len(tokens):
+        raise Exception(f'{tokens[pos].loc}: unexpected token "{tokens[pos].text}"')
+    return expr
