@@ -26,3 +26,7 @@ class IfExpression(Expression):
     then: Expression
     else_side: Optional[Expression] = None
 
+@dataclass
+class FunctionCall(Expression):
+    name: str
+    argument_list: list[Expression]

@@ -48,6 +48,20 @@ def parse(tokens: list[Token]) -> ast.Expression:
             then=then,
             else_side=else_side
         )
+    def parse_function(name) -> ast.FunctionCall:
+        consume("(")
+        argument_list: list[ast.Expression] = []
+        while peek().text != ")":
+            if argument_list:
+                if peek().text != ",":
+                    raise Exception(f"unexpected token '{peek().text}', expected ','")
+                consume(",")
+            argument_list.append(parse_expression())
+        consume(")")
+        return ast.FunctionCall(name=name, argument_list=argument_list)
+
+
+
 
     def parse_identifier() -> ast.Identifier:
         token = peek()
@@ -56,7 +70,9 @@ def parse(tokens: list[Token]) -> ast.Expression:
                 return parse_if()
             else:
                 consume()
-            return ast.Identifier(name=token.text)
+                if peek().text == "(":
+                    return parse_function(name=token.text)
+                return ast.Identifier(name=token.text)
         else:
             raise Exception(f"Expected literal found, {token.text}")
     

@@ -240,3 +240,28 @@ class TestParser(unittest.TestCase):
     def test_incorrect_formula(self):
         with self.assertRaises(Exception):
             parse(tokenize("(a + b b) * (c - d) / e"))
+
+    def test_function(self):
+        assert parse(tokenize("f(x, y)")) == ast.FunctionCall(
+            name="f",
+            argument_list=[ast.Identifier("x"), ast.Identifier("y")]
+        )
+
+    def test_function_with_expression_argument(self):
+        assert parse(tokenize("f(x, x + y)")) == ast.FunctionCall(
+            name="f",
+            argument_list=[
+                ast.Identifier("x"),  # First argument: Identifier "x"
+                ast.BinaryOp(         # Second argument: Expression "x + y"
+                    left=ast.Identifier("x"),
+                    op="+",
+                    right=ast.Identifier("y")
+                )
+            ]
+        )
+
+    def test_function_call_missing_comma(self):
+        with self.assertRaises(Exception) as context:
+            parse(tokenize("f(x y)"))  # Missing comma between arguments
+
+        self.assertIn("unexpected token", str(context.exception))  # Check error message
