@@ -28,5 +28,10 @@ class IfExpression(Expression):
 
 @dataclass
 class FunctionCall(Expression):
-    name: str
+    name: Identifier
     argument_list: list[Expression]
+
+@dataclass
+class UnaryOp(Expression):
+    op: str
+    operand: Optional[str] = None

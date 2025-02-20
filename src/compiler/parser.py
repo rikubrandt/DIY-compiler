@@ -2,7 +2,23 @@
 from compiler.tokenizer import Token
 from compiler import ast
 
-def parse(tokens: list[Token]) -> ast.Expression:
+
+
+LEFT_ASSOCIATIVE_BINARY_OPERATORS = [
+    ["or"],                  
+    ["and"],
+    ["==", "!="],
+    ["<", "<=", ">", ">="],
+    ["+", "-"],
+    ["*", "/", "%"],            
+]
+
+RIGHT_ASSOCIATIVE_OPERATORS = [
+    ["="],                      
+]
+
+
+def parse(tokens: list[Token]) -> ast.Expression | None:
     pos = 0
 
     def peek() -> Token:
@@ -23,17 +39,7 @@ def parse(tokens: list[Token]) -> ast.Expression:
         pos += 1
         return token
     
-    def parse_factor() -> ast.Expression:
-        if peek().text == ("("):
-            return parse_parenthesized()
-        if peek().type == 'int_literal':
-            return parse_int_literal()
-        elif peek().type == 'identifier':
-            return parse_identifier()
-        else:
-            raise Exception(f'{peek().loc}: expected an integer literal or an identifier')
-
-    def parse_if():
+    def parse_if() -> ast.IfExpression:
         consume("if")
         if_side = parse_expression()
         consume("then")
@@ -62,58 +68,76 @@ def parse(tokens: list[Token]) -> ast.Expression:
 
 
 
+    def parse_primary() -> ast.Expression:
+        """Literals, identifiers, if-expressions, function calls, and parenthesized expr."""
+        token = peek()
 
-    def parse_identifier() -> ast.Identifier:
-        token = peek()
+        if token.text == "(":
+            return parse_parenthesized()
+
+        if token.text == "if":
+            return parse_if()
+
         if token.type == "identifier":
-            if token.text == "if":
-                return parse_if()
-            else:
-                consume()
-                if peek().text == "(":
-                    return parse_function(name=token.text)
-                return ast.Identifier(name=token.text)
-        else:
-            raise Exception(f"Expected literal found, {token.text}")
-    
-    def parse_int_literal() -> ast.Literal:
-        token = peek()
+            consume()
+            if peek().text == "(":
+                return parse_function(token.text)
+            return ast.Identifier(name=token.text)
+        
         if token.type == "int_literal":
             consume()
             return ast.Literal(value=int(token.text))
-        else:
-            raise Exception(f"Expected literal found, {token.text}")
-
-    def parse_term() -> ast.Expression:
-        left = parse_factor()
-        while peek().text in ['*', '/']:
-            operator_token = consume()
-            operator = operator_token.text
-            right = parse_factor()
-            left = ast.BinaryOp(
-                left,
-                operator,
-                right
-            )
-        return left    
         
+        if token.type in ["string_literal", "boolean_literal"]:
+            consume()
+            return ast.Literal(value=token.text)
+
+        raise Exception(f"Unexpected token: {token.text}")
+
+ 
+        
+    def parse_unary() -> ast.Expression:
+        if peek().text in ["not", "-"]:
+            op_token = consume()
+            operand = parse_unary()
+            return ast.UnaryOp(op_token.text, operand)
+        return parse_primary()
+    
     def parse_parenthesized() -> ast.Expression:
         consume('(')
         expr = parse_expression()
         consume(')')
         return expr
     
-    def parse_expression() -> ast.Expression:
-        left: ast.Expression = parse_term()
-        while peek().text in ["+", "-"]:
-            op_token = consume()
-            right = parse_term()
-            left = ast.BinaryOp(left, op_token.text, right)
+    def parse_expression(precedence_level=0) -> ast.Expression:
         
-        return left
+        if precedence_level >= len(LEFT_ASSOCIATIVE_BINARY_OPERATORS) + len(RIGHT_ASSOCIATIVE_OPERATORS):
+            return parse_unary()
+        
+        if precedence_level < len(LEFT_ASSOCIATIVE_BINARY_OPERATORS):
+            left = parse_expression(precedence_level+1)
+            operators = LEFT_ASSOCIATIVE_BINARY_OPERATORS[precedence_level]
+            while peek().text in operators:
+                op_token = consume()
+                right = parse_expression(precedence_level+1)
+                left = ast.BinaryOp(left, op_token.text, right)
+            return left
+
+        elif precedence_level -  len(LEFT_ASSOCIATIVE_BINARY_OPERATORS) < len(RIGHT_ASSOCIATIVE_OPERATORS):
+            operators = RIGHT_ASSOCIATIVE_OPERATORS[precedence_level - len(LEFT_ASSOCIATIVE_BINARY_OPERATORS)]
+            left = parse_expression(precedence_level+1)
+
+            if peek().text in operators:
+                op_token = consume()
+                right = parse_expression(precedence_level)
+                left = ast.BinaryOp(left, op_token.text, right)
+            return left
+        
+        return parse_unary()
+
 
     if len(tokens) == 0:
-        return ast.Expression
+        return None
 
     expr = parse_expression()
 

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal, Optional, Any
 import re
 
 TokenType = Literal["int_literal", "identifier", "operator", "parenthesis"]
@@ -8,7 +8,7 @@ TokenType = Literal["int_literal", "identifier", "operator", "parenthesis"]
 class SourceLocation:
     line: int
     column: int
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
         return isinstance(other, SourceLocation) or other is L
 
 L = SourceLocation(line=-1, column=-1)  # Placeholder object for testing
@@ -37,7 +37,7 @@ class Tokenizer:
         self.line = 1
         self.column = 1
 
-    def _skip_whitespace_and_comments(self):
+    def _skip_whitespace_and_comments(self) -> None:
         while self.position < len(self.source_code):
             whitespace_match = re.match(r"\s+", self.source_code[self.position:])
             comment_match = self.COMMENT_PATTERN.match(self.source_code, self.position)
