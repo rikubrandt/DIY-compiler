@@ -193,7 +193,7 @@ class TestParser(unittest.TestCase):
                 left=ast.Literal(1),
                 op="+",
                 right=ast.IfExpression(
-                    if_side=ast.Identifier("true"),
+                    if_side=ast.Literal(True),
                     then=ast.Literal(2),
                     else_side=ast.Literal(3)
                 )
@@ -206,7 +206,7 @@ class TestParser(unittest.TestCase):
                 left=ast.Literal(1),
                 op="+",
                 right=ast.IfExpression(
-                    if_side=ast.Identifier("true"),
+                    if_side=ast.Literal(True),
                     then=ast.Literal(2),
                     else_side=ast.Literal(3)
                 )
@@ -243,13 +243,13 @@ class TestParser(unittest.TestCase):
 
     def test_function(self):
         assert parse(tokenize("f(x, y)")) == ast.FunctionCall(
-            name="f",
+            name=ast.Identifier("f"),
             argument_list=[ast.Identifier("x"), ast.Identifier("y")]
         )
 
     def test_function_with_expression_argument(self) -> None:
         assert parse(tokenize("f(x, x + y)")) == ast.FunctionCall(
-            name="f",
+            name=ast.Identifier("f"),
             argument_list=[
                 ast.Identifier("x"),  
                 ast.BinaryOp(        
@@ -312,3 +312,127 @@ class TestParser(unittest.TestCase):
                 right=ast.Identifier("c")
             )
         )
+
+
+    def test_simple_block(self):
+        assert parse(tokenize("{ x = 10; y = 20; x + y }")) == ast.Block(
+            expressions=[
+                ast.BinaryOp(ast.Identifier("x"), "=", ast.Literal(10)),
+                ast.BinaryOp(ast.Identifier("y"), "=", ast.Literal(20))
+            ],
+            result=ast.BinaryOp(ast.Identifier("x"), "+", ast.Identifier("y"))
+        )
+
+    def test_block_with_final_semicolon(self):
+        assert parse(tokenize("{ x = 10; y = 20; }")) == ast.Block(
+            expressions=[
+                ast.BinaryOp(ast.Identifier("x"), "=", ast.Literal(10)),
+                ast.BinaryOp(ast.Identifier("y"), "=", ast.Literal(20))
+            ],
+            result=ast.Literal(value=None)
+        )
+
+    def test_nested_blocks(self):
+        assert parse(tokenize("{ x = { y = 2; y + 1 }; x * 3 }")) == ast.Block(
+            expressions=[
+                ast.BinaryOp(
+                    ast.Identifier("x"),
+                    "=",
+                    ast.Block(
+                        expressions=[
+                            ast.BinaryOp(ast.Identifier("y"), "=", ast.Literal(2))
+                        ],
+                        result=ast.BinaryOp(ast.Identifier("y"), "+", ast.Literal(1))
+                    )
+                )
+            ],
+            result=ast.BinaryOp(ast.Identifier("x"), "*", ast.Literal(3))
+        )
+
+    def test_block_with_if_expression(self):
+        assert parse(tokenize("{ if a then b else c }")) == ast.Block(
+            expressions=[],
+            result=ast.IfExpression(
+                if_side=ast.Identifier("a"),
+                then=ast.Identifier("b"),
+                else_side=ast.Identifier("c")
+            )
+        )
+
+    def test_block_missing_semicolon_should_fail(self):
+        with self.assertRaises(Exception):
+            parse(tokenize("{ x = 10 y = 20 }"))
+
+    def test_empty_block(self):
+        assert parse(tokenize("{}")) == ast.Block(expressions=[], result=ast.Literal(value=None))
+
+
+
+    def test_nested_blocks_no_extra_semicolon(self):
+        assert parse(tokenize("{ { a } { b } }")) == ast.Block(
+            expressions=[
+                ast.Block(expressions=[], result=ast.Identifier("a")),
+            ],
+            result=ast.Block(expressions=[], result=ast.Identifier("b"))  
+        )
+
+    def test_missing_semicolon_should_fail(self):
+        with self.assertRaises(Exception):
+            parse(tokenize("{ a b }"))
+
+    def test_if_then_block_with_no_semicolon(self):
+        assert parse(tokenize("{ if true then { a } b }")) == ast.Block(
+            expressions=[
+                ast.IfExpression(
+                    if_side=ast.Literal(True),
+                    then=ast.Block(expressions=[], result=ast.Identifier("a")),
+                    else_side=None
+                ),
+            ],
+            result=ast.Identifier("b")
+        )
+
+    def test_if_then_else_block_with_following_expr(self):
+        assert parse(tokenize("{ if true then { a } else { b } c }")) == ast.Block(
+            expressions=[
+                ast.IfExpression(
+                    if_side=ast.Literal(True),
+                    then=ast.Block(expressions=[], result=ast.Identifier("a")),
+                    else_side=ast.Block(expressions=[], result=ast.Identifier("b")),
+                ),
+            ],
+            result=ast.Identifier("c")
+        )
+
+    def test_if_then_else_block_without_trailing_expr(self):
+        assert parse(tokenize("{ if true then { a } else { b } }")) == ast.Block(
+            expressions=[
+            ],
+            result=ast.IfExpression(
+                    if_side=ast.Literal(True),
+                    then=ast.Block(expressions=[], result=ast.Identifier("a")),
+                    else_side=ast.Block(expressions=[], result=ast.Identifier("b")),
+                )  
+    )
+
+
+    def test_variable_declaration_top_level(self):
+        assert parse(tokenize("var x = 123"))== ast.VarDeclaration(
+            name=ast.Identifier("x"), value=ast.Literal(123),
+        )
+
+    def test_variable_declaration_in_block_2(self):
+        assert parse(tokenize("{ var x = 123;}")) == ast.Block(
+            expressions=[ast.VarDeclaration(name=ast.Identifier("x"), value=ast.Literal(123))],
+            result=ast.Literal(None)
+        )
+
+    def test_variable_declaration_in_block(self):
+        assert parse(tokenize("{ var x = 123; x }")) == ast.Block(
+            expressions=[ast.VarDeclaration(name=ast.Identifier("x"), value=ast.Literal(123))],
+            result=ast.Identifier("x")
+        )
+
+    def test_invalid_nested_declaration(self):
+        with self.assertRaises(Exception):
+            parse(tokenize("1 + var x = 123"))

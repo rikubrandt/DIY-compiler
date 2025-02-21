@@ -12,7 +12,7 @@ class Identifier(Expression):
 
 @dataclass
 class Literal(Expression):
-    value: int
+    value: int | bool | str | None
 
 @dataclass
 class BinaryOp(Expression):
@@ -35,3 +35,19 @@ class FunctionCall(Expression):
 class UnaryOp(Expression):
     op: str
     operand: Optional[str] = None
+
+@dataclass
+class Block(Expression):
+    expressions: list[Expression]
+    result: Expression
+
+@dataclass
+class VarDeclaration(Expression):
+    name: str
+    value: Expression
+    var_type: Optional[str] = None
+
+@dataclass 
+class WhileLoop(Expression):
+    condition: Expression
+    body: Expression
