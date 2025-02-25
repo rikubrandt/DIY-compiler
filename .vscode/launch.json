@@ -12,6 +12,18 @@
             },
             "cwd": "${workspaceFolder}",  // <-- Run from the project root
             "justMyCode": true
+        },
+        {
+            "name": "Debug Single Typecheck test",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "unittest",
+            "args": ["tests.test_type_checker.TestTypeChecker.test_assignment_right_associative"], 
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            },
+            "cwd": "${workspaceFolder}",  // <-- Run from the project root
+            "justMyCode": true
         }
     ]
 }
