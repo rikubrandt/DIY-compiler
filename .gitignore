@@ -2,3 +2,4 @@
 __pycache__
 /.mypy_cache
 auth_token
+current_submission.*
