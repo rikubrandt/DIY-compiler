@@ -309,7 +309,7 @@ def generate_ir(
                 ins.append(Copy(loc, var_init, var_decl))
 
                 # Return the new variable
-                return var_decl
+                return var_unit
 
             case ast_nodes.FunctionCall():
                 # Get the function variable
