@@ -236,13 +236,6 @@ def test_block() -> None:
     ]
 
 
-def test_string_literal() -> None:
-    assert tokenize('"hello" "world"') == [
-        Token(type="string_literal", text='"hello"', loc=L),
-        Token(type="string_literal", text='"world"', loc=L),
-    ]
-
-
 def test_nested_blocks() -> None:
     assert tokenize("{ { x = 1; } { y = 2; } z = x + y; }") == [
         Token(type="parenthesis", text="{", loc=L),

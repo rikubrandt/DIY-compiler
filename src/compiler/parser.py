@@ -150,9 +150,6 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
         if token.type == "boolean_literal":
             consume()
             return ast_nodes.Literal(value=(token.text == "true"), type=Bool, location=token.loc)
-        if token.type == "string_literal":
-            consume()
-            return ast_nodes.Literal(value=token.text, type=Unit, location=token.loc)
         raise Exception(f"Unexpected token: {token.text}")
 
     def parse_unary(allow_decl: bool = False) -> ast_nodes.Expression:

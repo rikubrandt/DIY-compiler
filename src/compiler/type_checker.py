@@ -24,10 +24,19 @@ class TypeEnv:
         self.env[name] = typ
 
 
+def create_global_env() -> TypeEnv:
+    env = TypeEnv()
+    # Built-in print functions:
+    env.set("print_int", FunType([Int], Unit))
+    env.set("print_bool", FunType([Bool], Unit))
+    # You can add other built-ins here if needed.
+    return env
+
+
 def typecheck(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
 
     if env is None:
-        env = TypeEnv()
+        env = create_global_env()
 
     def _typecheck(n: ast_nodes.Expression) -> Any:
         match n:

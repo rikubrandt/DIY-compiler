@@ -158,7 +158,7 @@ class TestIRGenerator(unittest.TestCase):
             self.assertEqual(actual_count, count,
                              f"Expected {count} instructions of type {instr_type.__name__}, found {actual_count}")
 
-    def test_while_loop(self):
+    def test_while_loop(self) -> None:
         """Test IR generation for while loop."""
         ir = self.compile_to_ir("{ var i = 0; while i < 5 do i = i + 1 }")
 

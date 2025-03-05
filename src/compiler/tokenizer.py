@@ -37,7 +37,7 @@ class Tokenizer:
             r"\b(and|or|not)\b|==|!=|<=|>=|<|>|[+\-*/=%]")),
         ("int_literal", re.compile(r"[0-9]+")),
         ("identifier", re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")),
-        ("string_literal", re.compile(r'"[^"]*"')),
+        # ("string_literal", re.compile(r'"[^"]*"')),
         ("parenthesis", re.compile(r"[(){},;:]")),
     ]
 
