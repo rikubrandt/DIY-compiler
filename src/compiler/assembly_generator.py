@@ -1,14 +1,6 @@
-from typing import List, Dict, Set, Callable
-from dataclasses import dataclass
+from typing import List, Dict, Set
 from compiler import ir
-
-
-@dataclass
-class IntrinsicArgs:
-    """Arguments passed to intrinsic functions."""
-    arg_refs: list[str]  # Assembly references to arguments
-    result_register: str  # Register to store the result
-    emit: Callable[[str], None]  # Function to emit Assembly code
+from intrinsics import all_intrinsics, IntrinsicArgs
 
 
 class Locals:
@@ -59,93 +51,6 @@ def get_all_ir_variables(instructions: List[ir.Instruction]) -> List[ir.IRVar]:
                 variables.add(insn.cond)
 
     return list(variables)
-
-
-# Dictionary of intrinsics for basic operations
-all_intrinsics = {
-    '+': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, {args.result_register}"),
-        args.emit(f"addq {args.arg_refs[1]}, {args.result_register}")
-    ),
-    '-': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, {args.result_register}"),
-        args.emit(f"subq {args.arg_refs[1]}, {args.result_register}")
-    ),
-    '*': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, {args.result_register}"),
-        args.emit(f"imulq {args.arg_refs[1]}, {args.result_register}")
-    ),
-    '/': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, %rax"),
-        args.emit(f"cqto"),  # Sign-extend %rax into %rdx:%rax
-        args.emit(f"movq {args.arg_refs[1]}, %rcx"),
-        args.emit(f"idivq %rcx"),  # Divide %rdx:%rax by %rcx, quotient in %rax
-        args.emit(f"movq %rax, {args.result_register}")
-    ),
-    '%': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, %rax"),
-        args.emit(f"cqto"),  # Sign-extend %rax into %rdx:%rax
-        args.emit(f"movq {args.arg_refs[1]}, %rcx"),
-        # Divide %rdx:%rax by %rcx, remainder in %rdx
-        args.emit(f"idivq %rcx"),
-        args.emit(f"movq %rdx, {args.result_register}")
-    ),
-    '<': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, %rax"),
-        args.emit(f"cmpq {args.arg_refs[1]}, %rax"),
-        args.emit(f"setl %al"),  # Set %al to 1 if %rax < arg1
-        # Zero-extend %al into result
-        args.emit(f"movzbq %al, {args.result_register}")
-    ),
-    '>': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, %rax"),
-        args.emit(f"cmpq {args.arg_refs[1]}, %rax"),
-        args.emit(f"setg %al"),  # Set %al to 1 if %rax > arg1
-        args.emit(f"movzbq %al, {args.result_register}")
-    ),
-    '<=': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, %rax"),
-        args.emit(f"cmpq {args.arg_refs[1]}, %rax"),
-        args.emit(f"setle %al"),  # Set %al to 1 if %rax <= arg1
-        args.emit(f"movzbq %al, {args.result_register}")
-    ),
-    '>=': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, %rax"),
-        args.emit(f"cmpq {args.arg_refs[1]}, %rax"),
-        args.emit(f"setge %al"),  # Set %al to 1 if %rax >= arg1
-        args.emit(f"movzbq %al, {args.result_register}")
-    ),
-    '==': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, %rax"),
-        args.emit(f"cmpq {args.arg_refs[1]}, %rax"),
-        args.emit(f"sete %al"),  # Set %al to 1 if %rax == arg1
-        args.emit(f"movzbq %al, {args.result_register}")
-    ),
-    '!=': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, %rax"),
-        args.emit(f"cmpq {args.arg_refs[1]}, %rax"),
-        args.emit(f"setne %al"),  # Set %al to 1 if %rax != arg1
-        args.emit(f"movzbq %al, {args.result_register}")
-    ),
-    'and': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, %rax"),
-        args.emit(f"andq {args.arg_refs[1]}, %rax"),
-        args.emit(f"movq %rax, {args.result_register}")
-    ),
-    'or': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, %rax"),
-        args.emit(f"orq {args.arg_refs[1]}, %rax"),
-        args.emit(f"movq %rax, {args.result_register}")
-    ),
-    'unary_-': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, {args.result_register}"),
-        args.emit(f"negq {args.result_register}")
-    ),
-    'unary_not': lambda args: (
-        args.emit(f"movq {args.arg_refs[0]}, {args.result_register}"),
-        args.emit(f"xorq $1, {args.result_register}")  # Flip the lowest bit
-    ),
-}
 
 
 def generate_assembly(instructions: List[ir.Instruction]) -> str:
@@ -218,7 +123,7 @@ def generate_assembly(instructions: List[ir.Instruction]) -> str:
                 fun_name = insn.fun.name
 
                 if fun_name in all_intrinsics:
-                    # Use the intrinsic implementation
+                    # Use the intrinsic implementation from intrinsics.py
                     arg_refs = [locals.get_ref(arg) for arg in insn.args]
                     all_intrinsics[fun_name](IntrinsicArgs(
                         arg_refs=arg_refs,
