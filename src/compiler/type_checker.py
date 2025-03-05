@@ -26,12 +26,11 @@ class TypeEnv:
 
 def create_global_env() -> TypeEnv:
     env = TypeEnv()
-    # Built-in print functions:
+    # Built-in functions:
     env.set("print_int", FunType([Int], Unit))
     env.set("print_bool", FunType([Bool], Unit))
-    env.set("read_int", FunType([Bool], Unit))
+    env.set("read_int", FunType([], Unit))
 
-    # You can add other built-ins here if needed.
     return env
 
 
@@ -176,7 +175,7 @@ def typecheck(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
                     t_arg = _typecheck(arg)
                     if t_arg != expected:
                         raise Exception(
-                            f"Argument mistmatch with {t_arg}, expected: {expected}")
+                            f"Argument mismatch with {t_arg}, expected: {expected}")
                 t = fun_type.ret
 
             case _:
