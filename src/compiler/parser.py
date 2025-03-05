@@ -198,24 +198,25 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
     expr = parse_expression(0, allow_decl=True)
     if pos < len(tokens):
         if peek().text == ";":
-            # Consume all trailing semicolons.
+            # We have at least one semicolon.
+            statements = [expr]
             while pos < len(tokens) and peek().text == ";":
                 consume(";")
-            # No further expression: force the entire parsed expression to Unit.
-
-            def force_unit(node: ast_nodes.Expression) -> None:
-                node.type = Unit
-                # For composite nodes, force subparts if appropriate.
-                if isinstance(node, ast_nodes.BinaryOp):
-                    # (For this minimal change, we assume only the right side is coerced;
-                    # adjust as needed if other operators should be handled similarly.)
-                    force_unit(node.right)
-                elif isinstance(node, ast_nodes.FunctionCall):
-                    force_unit(node.name)
-                    for arg in node.argument_list:
-                        force_unit(arg)
-                # (You can add additional cases as needed.)
-            force_unit(expr)
+                # If there is another expression after the semicolon, parse it.
+                if pos < len(tokens) and peek().type != "end":
+                    stmt = parse_expression(0, allow_decl=True)
+                    statements.append(stmt)
+            if pos < len(tokens):
+                raise Exception(
+                    f'{peek().loc}: unexpected token "{peek().text}"')
+            # Instead of using the last parsed expression as the result,
+            # force the overall result to be a Unit literal (with value None)
+            expr = ast_nodes.Block(
+                expressions=statements,
+                result=ast_nodes.Literal(
+                    value=None, type=Unit, location=statements[0].location),
+                location=statements[0].location
+            )
         else:
             raise Exception(f'{peek().loc}: unexpected token "{peek().text}"')
     return expr

@@ -82,6 +82,9 @@ def generate_ir(
                 # Create an IR variable to hold the value,
                 # and emit the correct instruction to
                 # load the constant value.
+                print(expr.type)
+                if expr.type == Unit:
+                    return var_unit
                 match expr.value:
                     case bool():
                         var = new_var(Bool)
@@ -340,24 +343,23 @@ def generate_ir(
     # Start visiting the AST from the root.
     var_final_result = visit(root_symtab, root_expr)
 
-    # Add a call to print the final result
+    # Add a call to print the final result only if its type is Int or Bool
+    # (i.e. only if the overall expression isn’t a statement that discards its value).
     if var_types[var_final_result] == Int:
         var_print_int = root_symtab.require("print_int")
         var_print_result = new_var(Unit)
         ins.append(Call(root_expr.location, var_print_int,
-                   [var_final_result], var_print_result))
+                        [var_final_result], var_print_result))
     elif var_types[var_final_result] == Bool:
         var_print_bool = root_symtab.require("print_bool")
         var_print_result = new_var(Unit)
         ins.append(Call(root_expr.location, var_print_bool,
-                   [var_final_result], var_print_result))
+                        [var_final_result], var_print_result))
+    # Otherwise (if the final type is Unit) do nothing.
 
     return ins
 
-# Example usage:
 
-
-@staticmethod
 def setup_root_types() -> dict[IRVar, Type]:
     """Set up root_types with built-in operations and functions."""
     root_types = {}

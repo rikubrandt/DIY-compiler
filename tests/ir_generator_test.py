@@ -14,6 +14,7 @@ class TestIRGenerator(unittest.TestCase):
         """Helper method to compile source code to IR instructions."""
         tokens = tokenize(source_code)
         ast = parse(tokens)
+        print(ast)
         typecheck(ast)
         root_types = setup_root_types()
         return generate_ir(root_types, ast)
@@ -184,6 +185,13 @@ class TestIRGenerator(unittest.TestCase):
             ir) if isinstance(ins, Label)]
         self.assertEqual(len(label_indices), 3,
                          "Expected 3 labels for while loop")
+
+    def test_123_ir(self) -> None:
+        ir = self.compile_to_ir("123;")
+
+        for i in range(len(ir)):
+            print(str(ir[i])+"\n")
+        assert False
 
 
 if __name__ == '__main__':
