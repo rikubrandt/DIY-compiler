@@ -198,26 +198,32 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
     expr = parse_expression(0, allow_decl=True)
     if pos < len(tokens):
         if peek().text == ";":
-            # We have at least one semicolon, so treat this as a multi-statement program.
-            statements = [expr]
-            while pos < len(tokens) and peek().text == ";":
-                consume(";")
-                # If there is another expression after the semicolon, parse it.
-                if pos < len(tokens) and peek().type != "end":
-                    stmt = parse_expression(0, allow_decl=True)
-                    statements.append(stmt)
-            if pos < len(tokens):
-                raise Exception(
-                    f'{peek().loc}: unexpected token "{peek().text}"')
-            # If there's only one statement, keep it as-is; otherwise, wrap into a block.
-            if len(statements) == 1:
-                expr = statements[0]
+            # Consume the trailing semicolons.
+            consume(";")
+            # If after consuming the semicolon there's another expression, then we're in a multi-statement scenario.
+            if pos < len(tokens) and peek().type != "end":
+                statements = [expr]
+                # Parse the rest of the semicolon-separated expressions.
+                while pos < len(tokens) and peek().text == ";":
+                    consume(";")
+                    if pos < len(tokens) and peek().type != "end":
+                        stmt = parse_expression(0, allow_decl=True)
+                        statements.append(stmt)
+                if pos < len(tokens):
+                    raise Exception(
+                        f'{peek().loc}: unexpected token "{peek().text}"')
+                if len(statements) == 1:
+                    expr = statements[0]
+                else:
+                    expr = ast_nodes.Block(
+                        expressions=statements[:-1],
+                        result=statements[-1],
+                        location=statements[0].location
+                    )
             else:
-                expr = ast_nodes.Block(
-                    expressions=statements[:-1],
-                    result=statements[-1],
-                    location=statements[0].location
-                )
+                # If the semicolon is trailing with no following expression,
+                # simply ignore it and return the single parsed expression as-is.
+                pass
         else:
             raise Exception(f'{peek().loc}: unexpected token "{peek().text}"')
 

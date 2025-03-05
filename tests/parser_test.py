@@ -465,20 +465,31 @@ class TestParser(unittest.TestCase):
 
     def test_semicolon(self) -> None:
         assert parse(tokenize("print_int(5/4);")) == (
-            ast_nodes.FunctionCall(type=Unit,
-                                   name=ast_nodes.Identifier(
-                                       type=Unit, name='print_int'),
-                                   argument_list=[
-                                       ast_nodes.BinaryOp(
-                                           type=Unit, left=ast_nodes.Literal(type=Int, value=5), op='/',
-                                           right=ast_nodes.Literal(type=Int, value=4))]))
+            ast_nodes.FunctionCall(
+                type=Unit,
+                name=ast_nodes.Identifier(type=Unit, name='print_int'),
+                argument_list=[
+                    ast_nodes.BinaryOp(
+                        type=Unit,
+                        left=ast_nodes.Literal(type=Int, value=5),
+                        op='/',
+                        right=ast_nodes.Literal(type=Unit, value=4)
+                    )
+                ]
+            )
+        )
 
     def test_semicolon_2(self) -> None:
         assert parse(tokenize("print_int(5/4)")) == (
-            ast_nodes.FunctionCall(type=Unit,
-                                   name=ast_nodes.Identifier(
-                                       type=Unit, name='print_int'),
-                                   argument_list=[
-                                       ast_nodes.BinaryOp(
-                                           type=Unit, left=ast_nodes.Literal(type=Int, value=5), op='/',
-                                           right=ast_nodes.Literal(type=Int, value=4))]))
+            ast_nodes.FunctionCall(
+                type=Unit,
+                name=ast_nodes.Identifier(type=Unit, name='print_int'),
+                argument_list=[
+                    ast_nodes.BinaryOp(
+                        type=Unit,
+                        left=ast_nodes.Literal(type=Int, value=5),
+                        op='/',
+                        right=ast_nodes.Literal(type=Int, value=4)
+                    )
+                ]
+            ))
