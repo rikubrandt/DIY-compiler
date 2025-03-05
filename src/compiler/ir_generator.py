@@ -133,24 +133,30 @@ def generate_ir(
                     # Evaluate the left operand
                     left_var = visit(st, expr.left)
 
-                    # Create labels for short-circuit and end
+                    # Create labels for evaluating the right operand and for the short-circuit branch when left is false
+                    # When left is true, evaluate right operand.
+                    label_eval_right = new_label()
+                    # When left is false, short-circuit (result remains false).
                     label_short_circuit = new_label()
+                    # Join point after both branches.
                     label_end = new_label()
 
-                    # If left is false, short-circuit with false result
+                    # Copy the left operand into the result (in case it's false).
                     ins.append(Copy(loc, left_var, result_var))
-                    ins.append(CondJump(loc, left_var, Label(
-                        loc, ""), label_short_circuit))
+                    # If left is true, jump to label_eval_right; otherwise, if false, jump to label_short_circuit.
+                    ins.append(
+                        CondJump(loc, left_var, label_eval_right, label_short_circuit))
 
-                    # Otherwise, evaluate the right side and use its value
+                    # Right evaluation branch: left was true.
+                    ins.append(label_eval_right)
                     right_var = visit(st, expr.right)
                     ins.append(Copy(loc, right_var, result_var))
                     ins.append(Jump(loc, label_end))
 
-                    # Short-circuit label (result is already false from left_var)
+                    # Short-circuit branch: left was false; result remains false.
                     ins.append(label_short_circuit)
 
-                    # End label
+                    # End label for both branches.
                     ins.append(label_end)
 
                     return result_var
