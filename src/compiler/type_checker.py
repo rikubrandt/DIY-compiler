@@ -29,7 +29,7 @@ def create_global_env() -> TypeEnv:
     # Built-in functions:
     env.set("print_int", FunType([Int], Unit))
     env.set("print_bool", FunType([Bool], Unit))
-    env.set("read_int", FunType([Int], Unit))
+    env.set("read_int", FunType([], Int))
 
     return env
 
