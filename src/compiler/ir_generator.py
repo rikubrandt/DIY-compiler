@@ -378,5 +378,7 @@ def setup_root_types() -> dict[IRVar, Type]:
     # Print functions
     root_types[IRVar("print_int")] = FunType([Int], Unit)
     root_types[IRVar("print_bool")] = FunType([Bool], Unit)
+    # Read functions
+    root_types[IRVar("read_int")] = FunType([], Int)
 
     return root_types
