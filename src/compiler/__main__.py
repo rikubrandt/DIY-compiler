@@ -10,41 +10,63 @@ from src.compiler.assembly_generator import generate_assembly
 from src.compiler import assembler, type_checker, parser, tokenizer, ir_generator
 
 
-def call_compiler(source_code: str, out_filename: str) -> str:
-    """Compiles source code and saves the output to a file."""
-    # Tokenization
-    tokens = tokenizer.tokenize(source_code)
-    print(f"Tokenization complete: {len(tokens)} tokens")
+def call_compiler(source_code: str, input_file_name: str) -> bytes:
+    """Compiles source code and returns the executable as bytes.
 
-    # Parsing
-    ast_root = parser.parse(tokens)
-    if ast_root is None:
-        print("Empty program")
-        return None
-    print("Parsing complete")
+    Args:
+        source_code: The source code to compile
+        input_file_name: Original filename (used for error reporting)
 
-    # Type checking
-    type_checker.typecheck(ast_root)
-    print("Type checking complete")
+    Returns:
+        bytes: The compiled executable as bytes
+    """
+    import os
+    import tempfile
+    from src.compiler import tokenizer, parser, type_checker, ir_generator
+    from src.compiler.assembly_generator import generate_assembly
+    from src.compiler.assembler import assemble
 
-    # IR generation
-    root_types = ir_generator.setup_root_types()
-    ir_instructions = ir_generator.generate_ir(
-        root_types=root_types,
-        root_expr=ast_root
-    )
-    print(f"IR generation complete: {len(ir_instructions)} instructions")
+    # Use a temporary file for the output
+    with tempfile.NamedTemporaryFile(delete=False) as temp_output:
+        output_filename = temp_output.name
 
-    # Assembly generation
-    asm_code = generate_assembly(ir_instructions)
-    print("Assembly generation complete")
+    try:
+        # Tokenization
+        tokens = tokenizer.tokenize(source_code)
+        print(f"Tokenization complete: {len(tokens)} tokens")
 
-    # Invoke the assembler
-    assembler.assemble(asm_code, out_filename)
+        # Parsing
+        ast_root = parser.parse(tokens)
+        if ast_root is None:
+            raise Exception("Empty program")
+        print("Parsing complete")
 
-    print(f"Compilation successful! Output saved to {out_filename}")
+        # Type checking
+        type_checker.typecheck(ast_root)
+        print("Type checking complete")
 
-    return out_filename
+        root_types = ir_generator.setup_root_types()
+        ir_instructions = ir_generator.generate_ir(
+            root_types=root_types,
+            root_expr=ast_root
+        )
+        print(f"IR generation complete: {len(ir_instructions)} instructions")
+
+        asm_code = generate_assembly(ir_instructions)
+        print("Assembly generation complete")
+
+        assemble(asm_code, output_filename)
+        print("Assembly successful")
+
+        with open(output_filename, 'rb') as f:
+            executable_bytes = f.read()
+
+        return executable_bytes
+
+    finally:
+        # Clean up temporary file
+        if os.path.exists(output_filename):
+            os.remove(output_filename)
 
 
 def main() -> int:
