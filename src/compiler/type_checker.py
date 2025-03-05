@@ -1,5 +1,5 @@
-import src.compiler.ast_nodes as ast_nodes
-from src.compiler.types_compiler import Int, Type, Unit, Bool, FunType
+import compiler.ast_nodes as ast_nodes
+from compiler.types_compiler import Int, Type, Unit, Bool, FunType
 from typing import Optional, Any
 
 # Symbol table

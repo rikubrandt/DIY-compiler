@@ -24,9 +24,9 @@ docker run --platform=linux/amd64 --rm -v "$(pwd):/app" -w /app x86-compiler-pla
 cd /app && python3 -c \"
 import sys
 sys.path.insert(0, '/app')
-from src.compiler import tokenizer, parser, type_checker, ir_generator
-from src.compiler.assembly_generator import generate_assembly
-from src.compiler.assembler import assemble
+from compiler import tokenizer, parser, type_checker, ir_generator
+from compiler.assembly_generator import generate_assembly
+from compiler.assembler import assemble
 
 def call_compiler(source_code, out_filename):
     # Tokenization

@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import Dict, List
-from src.compiler import ast_nodes
-from src.compiler.ir import *
-from src.compiler.types_compiler import Int, Bool, Unit, Type, FunType
-from src.compiler.tokenizer import SourceLocation
+from compiler import ast_nodes
+from compiler.ir import *
+from compiler.types_compiler import Int, Bool, Unit, Type, FunType
+from compiler.tokenizer import SourceLocation
 from typing import Optional
 
 # --- Simple Symbol Table for IR Variables ---

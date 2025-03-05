@@ -1,6 +1,6 @@
 from typing import List, Dict, Set, Callable
 from dataclasses import dataclass
-from src.compiler import ir
+from compiler import ir
 
 
 @dataclass

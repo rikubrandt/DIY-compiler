@@ -31,4 +31,4 @@ COPY README.md /app/README.md
 ENV PYTHONPATH=/app
 
 # Set the entry point to run using the module structure
-ENTRYPOINT ["python3", "-m", "src.compiler.__main__"]
+ENTRYPOINT ["python3", "-m", "compiler.__main__"]

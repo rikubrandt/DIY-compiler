@@ -1,7 +1,7 @@
 from dataclasses import dataclass, fields
 from typing import Any, Optional
 
-from src.compiler.tokenizer import SourceLocation
+from compiler.tokenizer import SourceLocation
 
 
 # IR Variable and Instruction definitions
