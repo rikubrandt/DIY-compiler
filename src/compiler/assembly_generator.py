@@ -1,6 +1,6 @@
 from typing import List, Dict, Set
 from compiler import ir
-from intrinsics import all_intrinsics, IntrinsicArgs
+from compiler.intrinsics import all_intrinsics, IntrinsicArgs
 
 
 class Locals:
