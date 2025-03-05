@@ -17,7 +17,7 @@ def call_compiler(source_code: str, input_file_name: str) -> bytes:
     import tempfile
     from compiler import tokenizer, parser, type_checker, ir_generator
     from compiler.assembly_generator import generate_assembly
-    from compiler.assembler import assemble
+    from compiler.assembler import assemble_and_get_executable
 
     # Run compilation pipeline
     tokens = tokenizer.tokenize(source_code)
@@ -28,7 +28,7 @@ def call_compiler(source_code: str, input_file_name: str) -> bytes:
         root_types=root_types, root_expr=ast_root)
     asm_code = generate_assembly(ir_instructions)
 
-    bytes = assemble(asm_code, "output.txt")
+    bytes = assemble_and_get_executable(asm_code)
     return bytes
 
 
