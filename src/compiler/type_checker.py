@@ -1,5 +1,5 @@
-import compiler.ast_nodes as ast_nodes
-from compiler.types_compiler import Int, Type, Unit, Bool, FunType
+import src.compiler.ast_nodes as ast_nodes
+from src.compiler.types_compiler import Int, Type, Unit, Bool, FunType
 from typing import Optional, Any
 
 # Symbol table
@@ -112,8 +112,8 @@ def typecheck(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
                         f"If expression needs type Bool, got {t_cond}")
                 t_then = _typecheck(then)
                 t_else = _typecheck(
-                    else_side) if else_side is not None else Unit
-                if t_then != t_else:
+                    else_side) if else_side is not None else None
+                if t_else is not None and t_then != t_else:
                     raise Exception(
                         f"Branches of if must have same type, got {t_then}, {t_else}")
 

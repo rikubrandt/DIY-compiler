@@ -1,5 +1,5 @@
-from compiler.tokenizer import Token
-from compiler import ast_nodes
+from src.compiler.tokenizer import Token
+from src.compiler import ast_nodes
 
 LEFT_ASSOCIATIVE_BINARY_OPERATORS = [
     ["or"],

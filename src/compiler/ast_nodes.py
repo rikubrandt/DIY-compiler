@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
-from compiler.tokenizer import SourceLocation, L
-from compiler.types_compiler import Unit, Type
+from src.compiler.tokenizer import SourceLocation, L
+from src.compiler.types_compiler import Unit, Type
 
 
 @dataclass(kw_only=True)

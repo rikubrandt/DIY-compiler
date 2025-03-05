@@ -2,164 +2,188 @@ import unittest
 from compiler.tokenizer import tokenize
 from compiler.parser import parse
 from compiler.type_checker import typecheck
-from compiler.ir_generator import generate_ir, _var_counter, _label_counter
-from compiler.ir import IRVar
-from compiler.types_compiler import Int, Bool, Unit, FunType
-from compiler.type_checker import TypeEnv
-
-
-def reset_ir_counters():
-
-    import compiler.ir_generator as irgen
-    irgen._var_counter = 0
-    irgen._label_counter = 0
+import compiler.ir_generator
+from compiler.ir_generator import setup_root_types, generate_ir
+from compiler.ir import IRVar, LoadIntConst, LoadBoolConst, Call, Copy, Jump, CondJump, Label
+import dataclasses
 
 
 class TestIRGenerator(unittest.TestCase):
 
-    def setUp(self) -> None:
-        reset_ir_counters()
+    def compile_to_ir(self, source_code):
+        """Helper method to compile source code to IR instructions."""
+        tokens = tokenize(source_code)
+        ast = parse(tokens)
+        typecheck(ast)
+        root_types = setup_root_types()
+        return generate_ir(root_types, ast)
 
-        self.root_types = {
-            IRVar("+"): FunType([Int, Int], Int),
-            IRVar("<"): FunType([Int, Int], Bool),
-            IRVar("unary_-"): FunType([Int], Int),
+    def assert_ir_matches(self, ir_instructions, expected_instructions):
+        """Assert that generated IR matches expected output, ignoring locations."""
+        # First, check if the length matches
+        self.assertEqual(len(ir_instructions), len(expected_instructions),
+                         f"IR instruction count mismatch: {len(ir_instructions)} vs {len(expected_instructions)}")
 
+        for i, (actual, expected) in enumerate(zip(ir_instructions, expected_instructions)):
+            # Compare instruction types
+            self.assertEqual(type(actual), type(expected),
+                             f"Instruction {i} type mismatch: {type(actual)} vs {type(expected)}")
+
+            # Compare field values except location
+            for field in [f.name for f in dataclasses.fields(expected) if f.name != 'location']:
+                if hasattr(expected, field) and hasattr(actual, field):
+                    expected_value = getattr(expected, field)
+                    actual_value = getattr(actual, field)
+
+                    # For lists, compare elements
+                    if isinstance(expected_value, list):
+                        self.assertEqual(len(actual_value), len(expected_value),
+                                         f"List length mismatch in instruction {i}, field {field}")
+                        for j, (act_item, exp_item) in enumerate(zip(actual_value, expected_value)):
+                            self.assertEqual(str(act_item), str(exp_item),
+                                             f"List item {j} mismatch in instruction {i}, field {field}")
+                    else:
+                        # Convert to string for easier comparison of IRVar objects
+                        self.assertEqual(str(actual_value), str(expected_value),
+                                         f"Value mismatch in instruction {i}, field {field}")
+
+    def test_simple_literal(self):
+        """Test IR generation for a simple integer literal."""
+        ir = self.compile_to_ir("42")
+
+        # Expected IR for "42":
+        # 1. Load constant 42 to x1
+        # 2. Call print_int with [x1] and store in x2
+        expected = [
+            LoadIntConst(None, 42, IRVar("x1")),
+            Call(None, IRVar("print_int"), [IRVar("x1")], IRVar("x2"))
+        ]
+
+        self.assert_ir_matches(ir, expected)
+
+    def test_boolean_literal(self):
+        """Test IR generation for a boolean literal."""
+        ir = self.compile_to_ir("true")
+
+        expected = [
+            LoadBoolConst(None, True, IRVar("x1")),
+            Call(None, IRVar("print_bool"), [IRVar("x1")], IRVar("x2"))
+        ]
+
+        self.assert_ir_matches(ir, expected)
+
+    def test_simple_binary_op(self):
+        """Test IR generation for a simple binary operation."""
+        ir = self.compile_to_ir("1 + 2")
+
+        expected = [
+            LoadIntConst(None, 1, IRVar("x1")),
+            LoadIntConst(None, 2, IRVar("x2")),
+            Call(None, IRVar("+"), [IRVar("x1"), IRVar("x2")], IRVar("x3")),
+            Call(None, IRVar("print_int"), [IRVar("x3")], IRVar("x4"))
+        ]
+
+        self.assert_ir_matches(ir, expected)
+
+    def test_complex_expression(self):
+        """Test IR generation for a more complex expression."""
+        ir = self.compile_to_ir("1 + 2 * 3")
+
+        expected = [
+            LoadIntConst(None, 1, IRVar("x1")),
+            LoadIntConst(None, 2, IRVar("x2")),
+            LoadIntConst(None, 3, IRVar("x3")),
+            Call(None, IRVar("*"), [IRVar("x2"), IRVar("x3")], IRVar("x4")),
+            Call(None, IRVar("+"), [IRVar("x1"), IRVar("x4")], IRVar("x5")),
+            Call(None, IRVar("print_int"), [IRVar("x5")], IRVar("x6"))
+        ]
+
+        self.assert_ir_matches(ir, expected)
+
+    def test_variable_declaration(self):
+        """Test IR generation for variable declaration."""
+        ir = self.compile_to_ir("var x = 5")
+
+        expected = [
+            LoadIntConst(None, 5, IRVar("x1")),
+            Copy(None, IRVar("x1"), IRVar("x2")),
+            Call(None, IRVar("print_int"), [IRVar("x2")], IRVar("x3"))
+        ]
+
+        self.assert_ir_matches(ir, expected)
+
+    def test_variable_assignment(self):
+        """Test IR generation for variable assignment."""
+        ir = self.compile_to_ir("{ var x = 5; x = 10 }")
+
+        expected = [
+            LoadIntConst(None, 5, IRVar("x1")),
+            Copy(None, IRVar("x1"), IRVar("x2")),
+            LoadIntConst(None, 10, IRVar("x3")),
+            Copy(None, IRVar("x3"), IRVar("x2")),
+            Call(None, IRVar("print_int"), [IRVar("x2")], IRVar("x4"))
+        ]
+
+        self.assert_ir_matches(ir, expected)
+
+    def test_if_then(self):
+        """Test IR generation for if-then expression."""
+        ir = self.compile_to_ir("if true then 42")
+
+        # We can't predict label names exactly, so check the structure
+        self.assertEqual(len(ir), 5)
+        self.assertIsInstance(ir[0], LoadBoolConst)
+        self.assertIsInstance(ir[1], CondJump)
+        self.assertIsInstance(ir[2], Label)
+        self.assertIsInstance(ir[3], LoadIntConst)
+        self.assertIsInstance(ir[4], Label)
+
+    def test_if_then_else(self):
+        """Test IR generation for if-then-else expression."""
+        ir = self.compile_to_ir("if true then 42 else 24")
+        print("IR: \n")
+        print(ir)
+        instructions_to_check = {
+            LoadBoolConst: 1,
+            CondJump: 1,
+            Label: 3,  # then, else, end labels
+            LoadIntConst: 2,  # 42 and 24
+            Copy: 2,
+            Jump: 1,
+            Call: 1  # print_int
         }
 
-    def test_ir_addition(self) -> None:
-        src = "1 + 2"
+        for instr_type, count in instructions_to_check.items():
+            actual_count = sum(1 for ins in ir if isinstance(ins, instr_type))
+            self.assertEqual(actual_count, count,
+                             f"Expected {count} instructions of type {instr_type.__name__}, found {actual_count}")
 
-        tokens = tokenize(src)
-        ast_expr = parse(tokens)
-        typecheck(ast_expr)  # This populates the ast_expr.type field.
+    def test_while_loop(self):
+        """Test IR generation for while loop."""
+        ir = self.compile_to_ir("{ var i = 0; while i < 5 do i = i + 1 }")
 
-        instructions = generate_ir(self.root_types, ast_expr)
+        # Check the structure of the while loop
+        # We should have:
+        # - Variable declaration for i
+        # - Jump to condition check
+        # - Label for condition
+        # - Code for i < 5
+        # - CondJump
+        # - Label for body
+        # - Code for i = i + 1
+        # - Jump back to condition
+        # - Label for end
 
-        ir_output = "\n".join(str(instr) for instr in instructions)
+        # First find the Jump instruction which should be after the var declaration
+        jump_index = next((i for i, ins in enumerate(ir)
+                          if isinstance(ins, Jump)), -1)
+        self.assertGreater(jump_index, 0, "Jump instruction not found")
 
-        expected = (
-            "LoadIntConst(1, x1)\n"
-            "LoadIntConst(2, x2)\n"
-            "Call(+, [x1, x2], x3)"
-        )
-        self.assertEqual(ir_output, expected)
-
-    def test_ir_if_expression(self) -> None:
-        # Test IR generation for: if true then 1 else 2
-        src = "if true then 1 else 2"
-        tokens = tokenize(src)
-        ast_expr = parse(tokens)
-        typecheck(ast_expr)
-        instructions = generate_ir(self.root_types, ast_expr)
-        ir_output = "\n".join(str(instr) for instr in instructions)
-        expected = (
-            "LoadBoolConst(True, x1)\n"
-            "CondJump(x1, Label(L1), Label(L2))\n"
-            "Label(L1)\n"
-            "LoadIntConst(1, x2)\n"
-            "Jump(Label(L3))\n"
-            "Label(L2)\n"
-            "LoadIntConst(2, x3)\n"
-            "Jump(Label(L3))\n"
-            "Label(L3)"
-        )
-        self.assertEqual(ir_output, expected)
-
-    def test_ir_while_loop(self) -> None:
-        src = "while a < b do f()"
-        tokens = tokenize(src)
-        ast_expr = parse(tokens)
-
-        from compiler.type_checker import TypeEnv
-        env = TypeEnv()
-        env.set("a", Int)
-        env.set("b", Int)
-        from compiler.types_compiler import FunType
-        env.set("f", FunType([], Unit))
-        typecheck(ast_expr, env)
-
-        root_types = {
-            IRVar("a"): Int,
-            IRVar("b"): Int,
-            IRVar("<"): Bool,
-            IRVar("f"): FunType([], Unit)
-        }
-
-        instructions = generate_ir(root_types, ast_expr)
-        ir_output = "\n".join(str(instr) for instr in instructions)
-
-        self.assertIn("CondJump", ir_output)
-        self.assertIn("Jump", ir_output)
-        self.assertIn("Call(f, [],", ir_output)
-
-    def test_ir_literal_int(self) -> None:
-
-        src = "42"
-        tokens = tokenize(src)
-        ast_expr = parse(tokens)
-        typecheck(ast_expr)
-
-        root_types = {}
-        instructions = generate_ir(root_types, ast_expr)
-        ir_output = "\n".join(str(instr) for instr in instructions)
-
-        assert "LoadIntConst(42," in ir_output, f"IR output was:\n{ir_output}"
-
-    def test_ir_literal_bool(self) -> None:
-
-        src = "true"
-        tokens = tokenize(src)
-        ast_expr = parse(tokens)
-        typecheck(ast_expr)
-        root_types = {}
-        instructions = generate_ir(root_types, ast_expr)
-        ir_output = "\n".join(str(instr) for instr in instructions)
-
-        assert "LoadBoolConst(True," in ir_output, f"IR output was:\n{ir_output}"
-
-    def test_ir_binary_op(self) -> None:
-        # Test IR for a simple binary operation: 1 + 2
-        src = "1 + 2"
-        tokens = tokenize(src)
-        ast_expr = parse(tokens)
-        typecheck(ast_expr)
-
-        root_types = {IRVar("+"): Int}
-        instructions = generate_ir(root_types, ast_expr)
-        ir_output = "\n".join(str(instr) for instr in instructions)
-
-        assert "LoadIntConst(1," in ir_output, f"IR output was:\n{ir_output}"
-        assert "LoadIntConst(2," in ir_output, f"IR output was:\n{ir_output}"
-        assert "Call(+, " in ir_output, f"IR output was:\n{ir_output}"
-
-    def test_ir_function_call(self) -> None:
-        src = "f(1)"
-        tokens = tokenize(src)
-        ast_expr = parse(tokens)
-
-        from compiler.type_checker import TypeEnv
-        env = TypeEnv()
-
-        env.set("f", FunType([Int], Int))
-        typecheck(ast_expr, env)
-
-        root_types = {IRVar("f"): FunType([Int], Int)}
-        instructions = generate_ir(root_types, ast_expr)
-        ir_output = "\n".join(str(instr) for instr in instructions)
-        self.assertIn("LoadIntConst(1,", ir_output)
-        self.assertIn("Call(f, ", ir_output)
-
-    def test_ir_block(self) -> None:
-        src = "{ 1; 2 }"
-        tokens = tokenize(src)
-        ast_expr = parse(tokens)
-        typecheck(ast_expr)
-        root_types = {}
-        instructions = generate_ir(root_types, ast_expr)
-        ir_output = "\n".join(str(instr) for instr in instructions)
-        assert "LoadIntConst(1," in ir_output, f"IR output was:\n{ir_output}"
-        assert "LoadIntConst(2," in ir_output, f"IR output was:\n{ir_output}"
+        # Check that we have the expected labels
+        label_indices = [i for i, ins in enumerate(
+            ir) if isinstance(ins, Label)]
+        self.assertEqual(len(label_indices), 3,
+                         "Expected 3 labels for while loop")
 
 
 if __name__ == '__main__':

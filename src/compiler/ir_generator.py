@@ -1,194 +1,394 @@
 from dataclasses import dataclass
 from typing import Dict, List
-from compiler import ast_nodes
-from compiler.ir import *
-from compiler.types_compiler import Int, Bool, Unit, Type
-from compiler.tokenizer import SourceLocation
+from src.compiler import ast_nodes
+from src.compiler.ir import *
+from src.compiler.types_compiler import Int, Bool, Unit, Type, FunType
+from src.compiler.tokenizer import SourceLocation
 from typing import Optional
 
 # --- Simple Symbol Table for IR Variables ---
 
 
 class SymTab:
-    def __init__(self, parent: Optional["SymTab"] = None):
+    def __init__(self, parent=None):
+        self.locals = {}
         self.parent = parent
-        self.table: Dict[str, IRVar] = {}
 
-    def add(self, name: str, var: IRVar) -> None:
-        self.table[name] = var
+    def add_local(self, name, value):
+        self.locals[name] = value
 
-    def lookup(self, name: str) -> IRVar:
-        if name in self.table:
-            return self.table[name]
-        elif self.parent:
+    def lookup(self, name):
+        if name in self.locals:
+            return self.locals[name]
+        if self.parent:
             return self.parent.lookup(name)
-        else:
-            raise Exception(f"Undefined variable: {name}")
+        return None
 
-    def create_child(self) -> "SymTab":
-        return SymTab(self)
-
-
-# --- Global Counters and Fresh Name Generators ---
-_var_counter = 0
-_label_counter = 0
+    def require(self, name):
+        value = self.lookup(name)
+        if value is None:
+            raise Exception(f"Undefined name: {name}")
+        return value
 
 
-def new_var(t: Type, name: Optional[str] = None) -> IRVar:
-    global _var_counter
-    if name is not None:
-        return IRVar(name)
-    _var_counter += 1
-    return IRVar(f"x{_var_counter}")
-
-
-def new_label(loc: Optional[SourceLocation], name: Optional[str] = None) -> Label:
-    global _label_counter
-    if name is not None:
-        return Label(name=name, location=loc)
-    _label_counter += 1
-    return Label(name=f"L{_label_counter}", location=loc)
-
-# --- IR Generator ---
-
-
+# IR Generator implementation
 def generate_ir(
-    root_types: Dict[IRVar, Type],
+    # 'root_types' parameter should map all global names
+    # like 'print_int' and '+' to their types.
+    root_types: dict[IRVar, Type],
     root_expr: ast_nodes.Expression
-) -> List[Instruction]:
-    # Copy the global types mapping.
-    var_types: Dict[IRVar, Type] = dict(root_types)
-    # Create a special variable for unit.
-    var_unit = IRVar("unit")
+) -> list[Instruction]:
+    var_types: dict[IRVar, Type] = root_types.copy()
+    var_count = 0
+
+    # 'var_unit' is used when an expression's type is 'Unit'.
+    var_unit = IRVar('unit')
     var_types[var_unit] = Unit
 
-    instructions: List[Instruction] = []
+    label_count = 0
 
-    # Build a global symbol table mapping global names to IRVars.
-    global_symtab = SymTab()
-    for v in root_types.keys():
-        global_symtab.add(v.name, v)
+    def new_var(t: Type) -> IRVar:
+        # Create a new unique IR variable and
+        # add it to var_types
+        nonlocal var_count
+        var_count += 1
+        var = IRVar(f'x{var_count}')
+        var_types[var] = t
+        return var
 
-    # The core recursive function to traverse the AST and emit IR.
+    def new_label() -> Label:
+        nonlocal label_count
+        label_count += 1
+        return Label(root_expr.location, f'L{label_count}')
+
+    # We collect the IR instructions that we generate
+    # into this list.
+    ins: list[Instruction] = []
+
+    # This function visits an AST node,
+    # appends IR instructions to 'ins',
+    # and returns the IR variable where
+    # the emitted IR instructions put the result.
+    #
+    # It uses a symbol table to map local variables
+    # (which may be shadowed) to unique IR variables.
+    # The symbol table will be updated in the same way as
+    # in the interpreter and type checker.
     def visit(st: SymTab, expr: ast_nodes.Expression) -> IRVar:
         loc = expr.location
-        if isinstance(expr, ast_nodes.Literal):
-            if isinstance(expr.value, bool):
-                var = new_var(Bool)  # first bool literal becomes x1
-                instructions.append(LoadBoolConst(
-                    location=loc, value=expr.value, dest=var))
+
+        match expr:
+            case ast_nodes.Literal():
+                # Create an IR variable to hold the value,
+                # and emit the correct instruction to
+                # load the constant value.
+                match expr.value:
+                    case bool():
+                        var = new_var(Bool)
+                        ins.append(LoadBoolConst(
+                            loc, expr.value, var))
+                    case int():
+                        var = new_var(Int)
+                        ins.append(LoadIntConst(
+                            loc, expr.value, var))
+                    case None:
+                        var = var_unit
+                    case _:
+                        raise Exception(
+                            f"{loc}: unsupported literal: {type(expr.value)}")
+
+                # Return the variable that holds
+                # the loaded value.
                 return var
-            elif isinstance(expr.value, int):
-                # subsequent int literals become x2, x3, etc.
-                var = new_var(Int)
-                instructions.append(LoadIntConst(
-                    location=loc, value=expr.value, dest=var))
-                return var
-            elif expr.value is None:
+
+            case ast_nodes.Identifier():
+                # Look up the IR variable that corresponds to
+                # the source code variable.
+                return st.require(expr.name)
+
+            case ast_nodes.BinaryOp():
+                # Special handling for assignment
+                if expr.op == "=":
+                    if not isinstance(expr.left, ast_nodes.Identifier):
+                        raise Exception(
+                            f"{loc}: left-hand side of assignment must be an identifier")
+
+                    # Get the variable to assign to
+                    dest_var = st.require(expr.left.name)
+
+                    # Evaluate the right-hand side
+                    source_var = visit(st, expr.right)
+
+                    # Copy the value
+                    ins.append(Copy(loc, source_var, dest_var))
+
+                    # Return the destination variable
+                    return dest_var
+
+                # Special handling for short-circuit operators
+                elif expr.op == "and":
+                    # Create a result variable
+                    result_var = new_var(Bool)
+
+                    # Evaluate the left operand
+                    left_var = visit(st, expr.left)
+
+                    # Create labels for short-circuit and end
+                    label_short_circuit = new_label()
+                    label_end = new_label()
+
+                    # If left is false, short-circuit with false result
+                    ins.append(Copy(loc, left_var, result_var))
+                    ins.append(CondJump(loc, left_var, Label(
+                        loc, ""), label_short_circuit))
+
+                    # Otherwise, evaluate the right side and use its value
+                    right_var = visit(st, expr.right)
+                    ins.append(Copy(loc, right_var, result_var))
+                    ins.append(Jump(loc, label_end))
+
+                    # Short-circuit label (result is already false from left_var)
+                    ins.append(label_short_circuit)
+
+                    # End label
+                    ins.append(label_end)
+
+                    return result_var
+
+                elif expr.op == "or":
+                    # Create a result variable
+                    result_var = new_var(Bool)
+
+                    # Evaluate the left operand
+                    left_var = visit(st, expr.left)
+
+                    # Create labels for short-circuit and end
+                    label_short_circuit = new_label()
+                    label_end = new_label()
+
+                    # If left is true, short-circuit with true result
+                    ins.append(Copy(loc, left_var, result_var))
+                    ins.append(
+                        CondJump(loc, left_var, label_short_circuit, Label(loc, "")))
+
+                    # Otherwise, evaluate the right side and use its value
+                    right_var = visit(st, expr.right)
+                    ins.append(Copy(loc, right_var, result_var))
+                    ins.append(Jump(loc, label_end))
+
+                    # Short-circuit label (result is already true from left_var)
+                    ins.append(label_short_circuit)
+
+                    # End label
+                    ins.append(label_end)
+
+                    return result_var
+
+                # Regular binary operator
+                else:
+                    # Ask the symbol table to return the variable that refers
+                    # to the operator to call.
+                    var_op = st.require(expr.op)
+                    # Recursively emit instructions to calculate the operands.
+                    var_left = visit(st, expr.left)
+                    var_right = visit(st, expr.right)
+                    # Generate variable to hold the result.
+                    var_result = new_var(expr.type)
+                    # Emit a Call instruction that writes to that variable.
+                    ins.append(Call(
+                        loc, var_op, [var_left, var_right], var_result))
+                    return var_result
+
+            case ast_nodes.UnaryOp():
+                # Get the operator with unary_ prefix
+                op_name = f"unary_{expr.op}"
+                var_op = st.require(op_name)
+
+                # Evaluate the operand
+                var_operand = visit(st, expr.operand)
+
+                # Create a result variable
+                var_result = new_var(expr.type)
+
+                # Emit the call instruction
+                ins.append(Call(loc, var_op, [var_operand], var_result))
+
+                return var_result
+
+            case ast_nodes.IfExpression():
+                if expr.else_side is None:
+                    # Create (but don't emit) some jump targets.
+                    l_then = new_label()
+                    l_end = new_label()
+
+                    # Recursively emit instructions for
+                    # evaluating the condition.
+                    var_cond = visit(st, expr.if_side)
+                    # Emit a conditional jump instruction
+                    # to jump to 'l_then' or 'l_end',
+                    # depending on the content of 'var_cond'.
+                    ins.append(CondJump(loc, var_cond, l_then, l_end))
+
+                    # Emit the label that marks the beginning of
+                    # the "then" branch.
+                    ins.append(l_then)
+                    # Recursively emit instructions for the "then" branch.
+                    visit(st, expr.then)
+
+                    # Emit the label that we jump to
+                    # when we don't want to go to the "then" branch.
+                    ins.append(l_end)
+
+                    # An if-then expression doesn't return anything, so we
+                    # return a special variable "unit".
+                    return var_unit
+                else:
+                    # If-then-else case
+                    l_then = new_label()
+                    l_else = new_label()
+                    l_end = new_label()
+
+                    # Evaluate the condition
+                    var_cond = visit(st, expr.if_side)
+                    ins.append(CondJump(loc, var_cond, l_then, l_else))
+
+                    # Create a result variable based on the type of the then branch
+                    var_result = new_var(expr.type)
+
+                    # Then branch
+                    ins.append(l_then)
+                    var_then = visit(st, expr.then)
+                    ins.append(Copy(loc, var_then, var_result))
+                    ins.append(Jump(loc, l_end))
+
+                    # Else branch
+                    ins.append(l_else)
+                    var_else = visit(st, expr.else_side)
+                    ins.append(Copy(loc, var_else, var_result))
+
+                    # End of if-then-else
+                    ins.append(l_end)
+
+                    return var_result
+
+            case ast_nodes.WhileLoop():
+                # Create labels for the loop
+                l_cond = new_label()
+                l_body = new_label()
+                l_end = new_label()
+
+                # Jump to the condition evaluation
+                ins.append(Jump(loc, l_cond))
+
+                # Condition evaluation
+                ins.append(l_cond)
+                var_cond = visit(st, expr.condition)
+                ins.append(CondJump(loc, var_cond, l_body, l_end))
+
+                # Body execution
+                ins.append(l_body)
+                visit(st, expr.body)
+                ins.append(Jump(loc, l_cond))
+
+                # End of while loop
+                ins.append(l_end)
+
+                # While loops return Unit
                 return var_unit
-            else:
-                raise Exception(
-                    f"{loc}: Unsupported literal type: {type(expr.value)}")
-        elif isinstance(expr, ast_nodes.Identifier):
-            return st.lookup(expr.name)
-        elif isinstance(expr, ast_nodes.BinaryOp):
-            if expr.op == "=":
-                if not isinstance(expr.left, ast_nodes.Identifier):
-                    raise Exception(
-                        f"{loc}: Left-hand side of assignment must be an identifier.")
-                var_right = visit(st, expr.right)
-                var_left = st.lookup(expr.left.name)
-                instructions.append(
-                    Copy(location=loc, source=var_right, dest=var_left))
-                return var_left
-            else:
-                var_left = visit(st, expr.left)
-                var_right = visit(st, expr.right)
-                op_var = st.lookup(expr.op)
-                result_var = new_var(expr.type)
-                instructions.append(Call(location=loc, fun=op_var, args=[
-                                    var_left, var_right], dest=result_var))
-                return result_var
-        elif isinstance(expr, ast_nodes.UnaryOp):
-            var_operand = visit(st, expr.operand)
-            op_var = st.lookup(f"unary_{expr.op}")
-            result_var = new_var(expr.type)
-            instructions.append(Call(location=loc, fun=op_var, args=[
-                                var_operand], dest=result_var))
-            return result_var
-        elif isinstance(expr, ast_nodes.IfExpression):
-            # Generate labels (without forced names so that they are L1, L2, L3).
-            var_cond = visit(st, expr.if_side)
-            then_label = new_label(loc)    # becomes L1
-            else_label = new_label(loc)    # becomes L2
-            if_end_label = new_label(loc)   # becomes L3
-            instructions.append(CondJump(
-                location=loc, cond=var_cond, then_label=then_label, else_label=else_label))
-            # Then branch:
-            instructions.append(then_label)
-            # the then branch should emit, e.g., "LoadIntConst(1, x2)"
-            visit(st, expr.then)
-            instructions.append(Jump(location=loc, label=if_end_label))
-            # Else branch:
-            instructions.append(else_label)
-            if expr.else_side is not None:
-                visit(st, expr.else_side)  # should emit "LoadIntConst(2, x3)"
-            else:
-                # If no else branch, use unit.
-                instructions.append(LoadIntConst(
-                    location=loc, value=0, dest=var_unit))
-            instructions.append(Jump(location=loc, label=if_end_label))
-            instructions.append(if_end_label)
-            # For simplicity, we do not merge the branch values.
-            return var_unit
-        elif isinstance(expr, ast_nodes.FunctionCall):
-            var_fun = visit(st, expr.name)
-            arg_vars = [visit(st, arg) for arg in expr.argument_list]
-            result_var = new_var(expr.type)
-            instructions.append(
-                Call(location=loc, fun=var_fun, args=arg_vars, dest=result_var))
-            return result_var
-        elif isinstance(expr, ast_nodes.Block):
-            child = st.create_child()
-            for e in expr.expressions:
-                visit(child, e)
-            return visit(child, expr.result)
-        elif isinstance(expr, ast_nodes.VarDeclaration):
-            var_init = visit(st, expr.value)
-            newv = new_var(expr.type)
-            st.add(expr.name, newv)
-            instructions.append(Copy(location=loc, source=var_init, dest=newv))
-            return newv
-        elif isinstance(expr, ast_nodes.WhileLoop):
-            # For a while loop, emit:
-            #   Jump(cond_label)
-            #   L_then:
-            #     <body>
-            #   cond_label:
-            #     <evaluate condition>
-            #     CondJump(condition, L_then, L_end)
-            #   L_end:
-            start_label = new_label(loc)  # L?
-            cond_label = new_label(loc)   # L?
-            end_label = new_label(loc)    # L?
-            instructions.append(Jump(location=loc, label=cond_label))
-            instructions.append(start_label)
-            visit(st, expr.body)
-            instructions.append(cond_label)
-            var_cond = visit(st, expr.condition)
-            instructions.append(CondJump(
-                location=loc, cond=var_cond, then_label=start_label, else_label=end_label))
-            instructions.append(end_label)
-            return var_unit
-        else:
-            raise Exception(f"{loc}: IR generation not implemented for {expr}")
 
-    visit(global_symtab, root_expr)
-    return instructions
+            case ast_nodes.Block():
+                # Create a new symbol table for block scope
+                block_st = SymTab(st)
+
+                # Evaluate each expression in the block
+                for e in expr.expressions:
+                    visit(block_st, e)
+
+                # Evaluate and return the result expression
+                return visit(block_st, expr.result)
+
+            case ast_nodes.VarDeclaration():
+                # Evaluate the initial value
+                var_init = visit(st, expr.value)
+
+                # Create a new IR variable for this declaration
+                var_decl = new_var(expr.type)
+
+                # Add the variable to the symbol table
+                st.add_local(expr.name, var_decl)
+
+                # Copy the initial value
+                ins.append(Copy(loc, var_init, var_decl))
+
+                # Return the new variable
+                return var_decl
+
+            case ast_nodes.FunctionCall():
+                # Get the function variable
+                func_name = expr.name.name
+                var_func = st.require(func_name)
+
+                # Evaluate all arguments
+                arg_vars = [visit(st, arg) for arg in expr.argument_list]
+
+                # Create result variable
+                var_result = new_var(expr.type)
+
+                # Emit call instruction
+                ins.append(Call(loc, var_func, arg_vars, var_result))
+
+                return var_result
+
+    # Convert 'root_types' into a SymTab
+    # that maps all available global names to
+    # IR variables of the same name.
+    # In the Assembly generator stage, we will give
+    # definitions for these globals. For now,
+    # they just need to exist.
+    root_symtab = SymTab(parent=None)
+    for v in root_types.keys():
+        root_symtab.add_local(v.name, v)
+
+    # Start visiting the AST from the root.
+    var_final_result = visit(root_symtab, root_expr)
+
+    # Add a call to print the final result
+    if var_types[var_final_result] == Int:
+        var_print_int = root_symtab.require("print_int")
+        var_print_result = new_var(Unit)
+        ins.append(Call(root_expr.location, var_print_int,
+                   [var_final_result], var_print_result))
+    elif var_types[var_final_result] == Bool:
+        var_print_bool = root_symtab.require("print_bool")
+        var_print_result = new_var(Unit)
+        ins.append(Call(root_expr.location, var_print_bool,
+                   [var_final_result], var_print_result))
+
+    return ins
+
+# Example usage:
 
 
-# reset counters for testing
-def reset_ir_counters() -> None:
-    global _var_counter, _label_counter
-    _var_counter = 0
-    _label_counter = 0
+@staticmethod
+def setup_root_types() -> dict[IRVar, Type]:
+    """Set up root_types with built-in operations and functions."""
+    root_types = {}
+
+    # Binary operators
+    for op in ["+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "!="]:
+        root_types[IRVar(op)] = FunType([Int, Int], Bool if op in [
+            "<", "<=", ">", ">=", "==", "!="] else Int)
+
+    # Logical operators
+    for op in ["and", "or"]:
+        root_types[IRVar(op)] = FunType([Bool, Bool], Bool)
+
+    # Unary operators
+    root_types[IRVar("unary_not")] = FunType([Bool], Bool)
+    root_types[IRVar("unary_-")] = FunType([Int], Int)
+
+    # Print functions
+    root_types[IRVar("print_int")] = FunType([Int], Unit)
+    root_types[IRVar("print_bool")] = FunType([Bool], Unit)
+
+    return root_types

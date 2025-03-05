@@ -10,7 +10,6 @@ from pathlib import Path
 def get_platform_binary() -> str:
     system = platform.system().lower()
     if system == "darwin":
-        print("DAARIWN")
         return "test-gadget-client-macos"
     elif system == "windows":
         return "test-gadget-client-windows.exe"
