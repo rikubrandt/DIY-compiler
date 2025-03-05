@@ -198,33 +198,24 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
     expr = parse_expression(0, allow_decl=True)
     if pos < len(tokens):
         if peek().text == ";":
-            # Consume the trailing semicolons.
-            consume(";")
-            # If after consuming the semicolon there's another expression, then we're in a multi-statement scenario.
-            if pos < len(tokens) and peek().type != "end":
-                statements = [expr]
-                # Parse the rest of the semicolon-separated expressions.
-                while pos < len(tokens) and peek().text == ";":
-                    consume(";")
-                    if pos < len(tokens) and peek().type != "end":
-                        stmt = parse_expression(0, allow_decl=True)
-                        statements.append(stmt)
-                if pos < len(tokens):
-                    raise Exception(
-                        f'{peek().loc}: unexpected token "{peek().text}"')
-                if len(statements) == 1:
-                    expr = statements[0]
-                else:
-                    expr = ast_nodes.Block(
-                        expressions=statements[:-1],
-                        result=statements[-1],
-                        location=statements[0].location
-                    )
-            else:
-                # If the semicolon is trailing with no following expression,
-                # simply ignore it and return the single parsed expression as-is.
-                pass
+            # Consume all trailing semicolons.
+            while pos < len(tokens) and peek().text == ";":
+                consume(";")
+            # No further expression: force the entire parsed expression to Unit.
+
+            def force_unit(node: ast_nodes.Expression) -> None:
+                node.type = Unit
+                # For composite nodes, force subparts if appropriate.
+                if isinstance(node, ast_nodes.BinaryOp):
+                    # (For this minimal change, we assume only the right side is coerced;
+                    # adjust as needed if other operators should be handled similarly.)
+                    force_unit(node.right)
+                elif isinstance(node, ast_nodes.FunctionCall):
+                    force_unit(node.name)
+                    for arg in node.argument_list:
+                        force_unit(arg)
+                # (You can add additional cases as needed.)
+            force_unit(expr)
         else:
             raise Exception(f'{peek().loc}: unexpected token "{peek().text}"')
-
     return expr
