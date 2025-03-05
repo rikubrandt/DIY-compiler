@@ -156,61 +156,45 @@ def generate_ir(
                     return result_var
 
                 elif expr.op == "or":
-                    # Create a result variable
                     result_var = new_var(Bool)
 
-                    # Evaluate the left operand
                     left_var = visit(st, expr.left)
 
-                    # Create labels for short-circuit and end
                     label_short_circuit = new_label()
+                    label_eval_right = new_label()
                     label_end = new_label()
 
-                    # If left is true, short-circuit with true result
                     ins.append(Copy(loc, left_var, result_var))
                     ins.append(
-                        CondJump(loc, left_var, label_short_circuit, Label(loc, "")))
+                        CondJump(loc, left_var, label_short_circuit, label_eval_right))
 
-                    # Otherwise, evaluate the right side and use its value
+                    ins.append(label_eval_right)
                     right_var = visit(st, expr.right)
                     ins.append(Copy(loc, right_var, result_var))
                     ins.append(Jump(loc, label_end))
 
-                    # Short-circuit label (result is already true from left_var)
                     ins.append(label_short_circuit)
-
-                    # End label
                     ins.append(label_end)
 
                     return result_var
 
-                # Regular binary operator
                 else:
-                    # Ask the symbol table to return the variable that refers
-                    # to the operator to call.
                     var_op = st.require(expr.op)
-                    # Recursively emit instructions to calculate the operands.
                     var_left = visit(st, expr.left)
                     var_right = visit(st, expr.right)
-                    # Generate variable to hold the result.
                     var_result = new_var(expr.type)
-                    # Emit a Call instruction that writes to that variable.
                     ins.append(Call(
                         loc, var_op, [var_left, var_right], var_result))
                     return var_result
 
             case ast_nodes.UnaryOp():
-                # Get the operator with unary_ prefix
                 op_name = f"unary_{expr.op}"
                 var_op = st.require(op_name)
 
-                # Evaluate the operand
                 var_operand = visit(st, expr.operand)
 
-                # Create a result variable
                 var_result = new_var(expr.type)
 
-                # Emit the call instruction
                 ins.append(Call(loc, var_op, [var_operand], var_result))
 
                 return var_result
@@ -235,8 +219,6 @@ def generate_ir(
                     # Recursively emit instructions for the "then" branch.
                     visit(st, expr.then)
 
-                    # Emit the label that we jump to
-                    # when we don't want to go to the "then" branch.
                     ins.append(l_end)
 
                     # An if-then expression doesn't return anything, so we
