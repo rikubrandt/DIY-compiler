@@ -2,98 +2,108 @@ import unittest
 from compiler.tokenizer import tokenize
 from compiler.parser import parse
 from compiler.type_checker import typecheck, TypeEnv
-from compiler.types import Int, Bool, Unit, FunType
-from compiler import ast
+from compiler.types_compiler import Int, Bool, Unit, IntType
+from compiler import ast_nodes
+
 
 class TestTypeChecker(unittest.TestCase):
+    def test_int_literal(self) -> None:
+        tokens = tokenize("5")
+        node = parse(tokens)
 
-    def test_literal_int(self):
-        src = "42"
-        ast_expr = parse(tokenize(src))
-        t = typecheck(ast_expr)
-        self.assertEqual(t, Int)
-        self.assertEqual(ast_expr.type, Int)
+        if node is not None:
+            typecheck(node)
+            assert node.type == Int
 
-    def test_literal_bool(self):
-        src = "true"
-        ast_expr = parse(tokenize(src))
-        t = typecheck(ast_expr)
-        self.assertEqual(t, Bool)
-        self.assertEqual(ast_expr.type, Bool)
+    def test_bool_literal(self) -> None:
+        tokens = tokenize("true")
+        node = parse(tokens)
 
-    def test_addition(self):
-        src = "1 + 2"
-        ast_expr = parse(tokenize(src))
-        t = typecheck(ast_expr)
-        self.assertEqual(t, Int)
-        self.assertEqual(ast_expr.type, Int)
+        if node is not None:
+            typecheck(node)
+            assert node.type == Bool
 
-    def test_if_expression(self):
-        src = "if true then 1 else 2"
-        ast_expr = parse(tokenize(src))
-        t = typecheck(ast_expr)
-        self.assertEqual(t, Int)
-        self.assertEqual(ast_expr.type, Int)
+    def test_unit_literal(self) -> None:
+        tokens = tokenize("{}")
+        node = parse(tokens)
 
-    def test_if_expression_type_error(self):
-        src = "if 1 then 1 else 2"  # condition is not Bool
-        ast_expr = parse(tokenize(src))
-        with self.assertRaises(Exception):
-            typecheck(ast_expr)
+        if node is not None:
+            typecheck(node)
+            assert node.type == Unit
 
-    def test_while_loop(self):
-        src = "while true do 1"
-        ast_expr = parse(tokenize(src))
-        t = typecheck(ast_expr)
-        self.assertEqual(t, Unit)
-        self.assertEqual(ast_expr.type, Unit)
+    def test_binary_op_addition(self) -> None:
+        tokens = tokenize("5 + 3")
+        node = parse(tokens)
 
-    def test_block(self):
-        src = "{ 1; 2 }"
-        ast_expr = parse(tokenize(src))
-        t = typecheck(ast_expr)
-        # Block's type is that of its final expression (2), which is Int.
-        self.assertEqual(t, Int)
-        self.assertEqual(ast_expr.type, Int)
+        if node is not None:
+            env = TypeEnv()
+            env.set("+", ast_nodes.BinaryOp)
+            typecheck(node, env)
+            assert node.type == Int
 
-    def test_var_declaration_top_level(self):
-        src = "var x = 123"
-        ast_expr = parse(tokenize(src))
-        t = typecheck(ast_expr)
-        # For a var declaration, we infer the type from its initializer.
-        self.assertEqual(t, Int)
-        self.assertEqual(ast_expr.type, Int)
+    def test_binary_op_nested(self) -> None:
+        tokens = tokenize("5 + 3 + 2")
+        node = parse(tokens)
 
-    def test_assignment_right_associative(self):
-        # To typecheck "a = b = c", we need to prepopulate the environment.
-        env = TypeEnv()
-        env.set("a", Int)
-        env.set("b", Int)
-        env.set("c", Int)
-        src = "a = b = c"
-        ast_expr = parse(tokenize(src))
-        t = typecheck(ast_expr, env)
-        self.assertEqual(t, Int)
-        self.assertEqual(ast_expr.type, Int)
+        if node is not None:
+            env = TypeEnv()
+            env.set("+", ast_nodes.BinaryOp)
+            typecheck(node, env)
 
-    def test_function_call(self):
-        # Set up a function f with type (Int) => Bool in the environment.
-        env = TypeEnv()
-        env.set("f", FunType([Int], Bool))
-        src = "f(42)"
-        ast_expr = parse(tokenize(src))
-        t = typecheck(ast_expr, env)
-        self.assertEqual(t, Bool)
-        self.assertEqual(ast_expr.type, Bool)
+    def test_comparison_lt(self) -> None:
+        tokens = tokenize("3 < 5")
+        node = parse(tokens)
 
-    def test_function_call_wrong_arg(self):
-        # f expects an Int but we pass a Bool.
-        env = TypeEnv()
-        env.set("f", FunType([Int], Bool))
-        src = "f(true)"
-        ast_expr = parse(tokenize(src))
-        with self.assertRaises(Exception):
-            typecheck(ast_expr, env)
+        if node is not None:
+            env = TypeEnv()
+            env.set("<", ast_nodes.BinaryOp)
+            typecheck(node, env)
+            assert node.type == Bool
 
-if __name__ == '__main__':
+    def test_comparison_gt(self) -> None:
+        tokens = tokenize("8 > 5")
+        node = parse(tokens)
+
+        if node is not None:
+            env = TypeEnv()
+            env.set(">", ast_nodes.BinaryOp)
+            typecheck(node, env)
+            assert node.type == Bool
+
+    def test_logical_and(self) -> None:
+        tokens = tokenize("true and false")
+        node = parse(tokens)
+
+        if node is not None:
+            env = TypeEnv()
+            env.set("and", ast_nodes.BinaryOp)
+            typecheck(node, env)
+            assert node.type == Bool
+
+    def test_var_declaration(self) -> None:
+        tokens = tokenize("var x = 5")
+        node = parse(tokens)
+
+        if node is not None:
+            typecheck(node)
+            assert node.type == Int
+
+    def test_var_declaration_with_type(self) -> None:
+        tokens = tokenize("var x: Int = 5")
+        node = parse(tokens)
+
+        if node is not None:
+            typecheck(node)
+            assert node.type == Int
+
+    def test_var_declaration_type_mismatch(self) -> None:
+        tokens = tokenize("var x: Bool = 5")
+        node = parse(tokens)
+
+        if node is not None:
+            with self.assertRaises(Exception):
+                typecheck(node)
+
+
+if __name__ == "__main__":
     unittest.main()

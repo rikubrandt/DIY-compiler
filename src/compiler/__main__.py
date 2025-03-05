@@ -5,17 +5,79 @@ import sys
 from socketserver import ForkingTCPServer, StreamRequestHandler
 from traceback import format_exception
 from typing import Any
+from compiler.assembly_generator import generate_assembly
+from compiler import assembler, type_checker, parser, tokenizer, ir_generator, ir, types_compiler
 
 
-def call_compiler(source_code: str, input_file_name: str) -> bytes:
-    # *** TODO ***
-    # Call your compiler here and return the compiled executable.
-    # Raise an exception on compilation error.
-    #
-    # The input file name is informational only: you can optionally include in your source locations and error messages,
-    # or you can ignore it.
-    # *** TODO ***
-    raise NotImplementedError("Compiler not implemented")
+def call_compiler(source_code: str, out_filename: str) -> str:
+    """Compiles source code and saves the output to a file."""
+    # Tokenization
+    tokens = tokenizer.tokenize(source_code)
+
+    # Parsing
+    ast_root = parser.parse(tokens)
+    if ast_root is None:
+        print("Empty program")
+        return None
+
+    # Type checking
+    type_env = type_checker.TypeEnv()
+    # Add built-in functions to the environment
+    type_env.set("print_int", types_compiler.FunType(
+        [types_compiler.Int], types_compiler.Unit))
+    type_env.set("print_bool", types_compiler.FunType(
+        [types_compiler.Bool], types_compiler.Unit))
+    type_env.set("read_int", types_compiler.FunType([], types_compiler.Int))
+    # Add operators
+    type_env.set(
+        "+", types_compiler.FunType([types_compiler.Int, types_compiler.Int], types_compiler.Int))
+    type_env.set(
+        "-", types_compiler.FunType([types_compiler.Int, types_compiler.Int], types_compiler.Int))
+    type_env.set(
+        "*", types_compiler.FunType([types_compiler.Int, types_compiler.Int], types_compiler.Int))
+    type_env.set(
+        "/", types_compiler.FunType([types_compiler.Int, types_compiler.Int], types_compiler.Int))
+    type_env.set("%", types_compiler.FunType(
+        [types_compiler.Int, types_compiler.Int], types_compiler.Int))
+    type_env.set("<", types_compiler.FunType(
+        [types_compiler.Int, types_compiler.Int], types_compiler.Bool))
+    type_env.set("<=", types_compiler.FunType(
+        [types_compiler.Int, types_compiler.Int], types_compiler.Bool))
+    type_env.set(">", types_compiler.FunType(
+        [types_compiler.Int, types_compiler.Int], types_compiler.Bool))
+    type_env.set(">=", types_compiler.FunType(
+        [types_compiler.Int, types_compiler.Int], types_compiler.Bool))
+    type_env.set("==", types_compiler.FunType(
+        [types_compiler.Int, types_compiler.Int], types_compiler.Bool))
+    type_env.set("!=", types_compiler.FunType(
+        [types_compiler.Int, types_compiler.Int], types_compiler.Bool))
+    type_env.set("and", types_compiler.FunType(
+        [types_compiler.Bool, types_compiler.Bool], types_compiler.Bool))
+    type_env.set("or", types_compiler.FunType(
+        [types_compiler.Bool, types_compiler.Bool], types_compiler.Bool))
+    type_env.set("not", types_compiler.FunType(
+        [types_compiler.Bool], types_compiler.Bool))
+    type_env.set(
+        "unary_-", types_compiler.FunType([types_compiler.Int], types_compiler.Int))
+
+    type_checker.typecheck(ast_root, type_env)
+
+    # IR generation
+    ir_instructions = ir_generator.generate_ir(
+        root_types={ir.IRVar(name): type_env.get(name)
+                    for name in type_env.env},
+        root_expr=ast_root
+    )
+
+    # Assembly generation - this is the new step!
+    asm_code = generate_assembly(ir_instructions)
+
+    # Invoke the assembler - also new!
+    assembler.assemble(asm_code, out_filename)
+
+    print(f"Compilation successful! Output saved to {out_filename}")
+
+    return out_filename
 
 
 def main() -> int:
