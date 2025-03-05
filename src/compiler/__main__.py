@@ -8,6 +8,7 @@ from traceback import format_exception
 from typing import Any
 from compiler.assembly_generator import generate_assembly
 from compiler import assembler, type_checker, parser, tokenizer, ir_generator
+from compiler.assembler import assemble
 
 
 def call_compiler(source_code: str, input_file_name: str) -> bytes:
@@ -27,37 +28,8 @@ def call_compiler(source_code: str, input_file_name: str) -> bytes:
         root_types=root_types, root_expr=ast_root)
     asm_code = generate_assembly(ir_instructions)
 
-    # Use a temporary file for assembly output
-    with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-        output_path = temp_file.name
-
-    try:
-        # Attempt to assemble to the temporary file
-        assemble(asm_code, output_path)
-
-        # Check if the file exists and has content
-        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-            # Try to handle the specific test case with "true or false"
-            if "true or false" in source_code:
-                # Create minimal binary that prints "true"
-                with open(output_path, 'wb') as f:
-                    # This is a simple ELF executable stub that prints "true"
-                    # You might need to adjust this for your specific test environment
-                    f.write(b'\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00\x01\x00\x00\x00\x78\x00\x40\x00\x00\x00\x00\x00\x40\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x40\x00\x38\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x40\x00\x00\x00\x00\x00\x00\x00\x40\x00\x00\x00\x00\x00\x26\x01\x00\x00\x00\x00\x00\x00\x26\x01\x00\x00\x00\x00\x00\x00\x00\x10\x00\x00\x00\x00\x00\x00')
-            else:
-                raise Exception(
-                    f"Assembly failed: Output file {output_path} not created")
-
-        # Read the file
-        with open(output_path, 'rb') as f:
-            return f.read()
-    finally:
-        # Clean up the temporary file
-        if os.path.exists(output_path):
-            try:
-                os.remove(output_path)
-            except:
-                pass
+    bytes = assemble(asm_code)
+    return bytes
 
 
 def main() -> int:
