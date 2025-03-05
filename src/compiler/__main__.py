@@ -28,7 +28,7 @@ def call_compiler(source_code: str, input_file_name: str) -> bytes:
         root_types=root_types, root_expr=ast_root)
     asm_code = generate_assembly(ir_instructions)
 
-    bytes = assemble(asm_code)
+    bytes = assemble(asm_code, "output.txt")
     return bytes
 
 
