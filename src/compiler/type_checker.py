@@ -45,6 +45,21 @@ def typecheck(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
             case ast_nodes.Identifier(name=name):
                 t = env.get(name)
 
+            case ast_nodes.UnaryOp(op=op, operand=operand):
+                t_operand = _typecheck(operand)
+                if op == '-':
+                    if t_operand is not Int:
+                        raise Exception(
+                            f"Unary '-' operator requires an Int operand, got {t_operand}")
+                    t = Int
+                elif op == 'not':
+                    if t_operand is not Bool:
+                        raise Exception(
+                            f"Unary 'not' operator requires a Bool operand, got {t_operand}")
+                    t = Bool
+                else:
+                    raise Exception(f"Unknown unary operator: {op}")
+
             # BinaryOps
             case ast_nodes.BinaryOp(left=left, op=op, right=right):
                 t_left = _typecheck(left)

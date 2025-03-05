@@ -104,6 +104,14 @@ class TestTypeChecker(unittest.TestCase):
             with self.assertRaises(Exception):
                 typecheck(node)
 
+    def test_simple_unary(self) -> None:
+        tokens = tokenize("-3")
+        print(tokens)
+        node = parse(tokens)
+        print(node)
+        typecheck(node)
+        assert node.type == Int
+
 
 if __name__ == "__main__":
     unittest.main()

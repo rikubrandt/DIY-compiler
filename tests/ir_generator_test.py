@@ -185,14 +185,6 @@ class TestIRGenerator(unittest.TestCase):
         self.assertEqual(len(label_indices), 3,
                          "Expected 3 labels for while loop")
 
-    def test_true_or_true(self) -> None:
-        ir = self.compile_to_ir("true or true")
-
-        for i in range(len(ir)):
-            print(str(ir[i])+"\n")
-
-        assert False
-
 
 if __name__ == '__main__':
     unittest.main()

@@ -2,7 +2,7 @@
 import unittest
 from compiler.tokenizer import tokenize
 from compiler.parser import parse
-
+from compiler.types_compiler import Int, Bool, Unit
 from compiler import ast_nodes
 
 
@@ -451,3 +451,14 @@ class TestParser(unittest.TestCase):
     def test_invalid_nested_declaration(self) -> None:
         with self.assertRaises(Exception):
             parse(tokenize("1 + var x = 123"))
+
+    def test_unary_simple(self) -> None:
+        assert parse(tokenize("-3")) == (
+            ast_nodes.UnaryOp(
+                op='-',
+                type=Int,
+                operand=ast_nodes.Literal(
+                    value=3
+                )
+            )
+        )

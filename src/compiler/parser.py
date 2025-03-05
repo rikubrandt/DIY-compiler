@@ -1,5 +1,6 @@
 from compiler.tokenizer import Token
 from compiler import ast_nodes
+from compiler.types_compiler import Int, Bool, Unit
 
 LEFT_ASSOCIATIVE_BINARY_OPERATORS = [
     ["or"],
@@ -145,13 +146,13 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
             return ast_nodes.Identifier(name=token.text, location=token.loc)
         if token.type == "int_literal":
             consume()
-            return ast_nodes.Literal(value=int(token.text), location=token.loc)
+            return ast_nodes.Literal(value=int(token.text), type=Int, location=token.loc)
         if token.type == "boolean_literal":
             consume()
-            return ast_nodes.Literal(value=(token.text == "true"), location=token.loc)
+            return ast_nodes.Literal(value=(token.text == "true"), type=Bool, location=token.loc)
         if token.type == "string_literal":
             consume()
-            return ast_nodes.Literal(value=token.text, location=token.loc)
+            return ast_nodes.Literal(value=token.text, type=Unit, location=token.loc)
         raise Exception(f"Unexpected token: {token.text}")
 
     def parse_unary(allow_decl: bool = False) -> ast_nodes.Expression:
