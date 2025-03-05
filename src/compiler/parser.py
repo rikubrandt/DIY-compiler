@@ -198,25 +198,33 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
     expr = parse_expression(0, allow_decl=True)
     if pos < len(tokens):
         if peek().text == ";":
-            # We have at least one semicolon.
+            # We have encountered at least one semicolon.
             statements = [expr]
             while pos < len(tokens) and peek().text == ";":
                 consume(";")
-                # If there is another expression after the semicolon, parse it.
+                # If there's an expression after the semicolon, parse and add it.
                 if pos < len(tokens) and peek().type != "end":
                     stmt = parse_expression(0, allow_decl=True)
                     statements.append(stmt)
             if pos < len(tokens):
                 raise Exception(
                     f'{peek().loc}: unexpected token "{peek().text}"')
-            # Instead of using the last parsed expression as the result,
-            # force the overall result to be a Unit literal (with value None)
-            expr = ast_nodes.Block(
-                expressions=statements,
-                result=ast_nodes.Literal(
-                    value=None, type=Unit, location=statements[0].location),
-                location=statements[0].location
-            )
+            # If there's only one statement, it means there was a trailing semicolon with no final expression.
+            # In that case, force the overall result to Unit.
+            if len(statements) == 1:
+                expr = ast_nodes.Block(
+                    expressions=statements,
+                    result=ast_nodes.Literal(
+                        value=None, type=Unit, location=statements[0].location),
+                    location=statements[0].location
+                )
+            else:
+                # Otherwise, if there is more than one statement, the last one is taken as the result.
+                expr = ast_nodes.Block(
+                    expressions=statements[:-1],
+                    result=statements[-1],
+                    location=statements[0].location
+                )
         else:
             raise Exception(f'{peek().loc}: unexpected token "{peek().text}"')
     return expr
