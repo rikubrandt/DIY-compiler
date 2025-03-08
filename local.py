@@ -4,6 +4,32 @@ import subprocess
 from compiler.__main__ import call_compiler
 from compiler.assembler import assemble
 
+def pretty_print(node, indent=0):
+    """
+    Recursively pretty-print an AST node, skipping location information.
+    """
+    indent_str = "  " * indent
+    if hasattr(node, "__dict__"):
+        result = f"{indent_str}{node.__class__.__name__}(\n"
+        for key, value in node.__dict__.items():
+            # Skip location-related attributes.
+            if key in ("location", "loc"):
+                continue
+            result += f"{indent_str}  {key} = "
+            if isinstance(value, list):
+                result += "[\n"
+                for item in value:
+                    result += pretty_print(item, indent + 2) + ",\n"
+                result += f"{indent_str}  ]\n"
+            elif hasattr(value, "__dict__"):
+                result += "\n" + pretty_print(value, indent + 2) + "\n"
+            else:
+                result += f"{value!r}\n"
+        result += f"{indent_str})"
+        return result
+    else:
+        return f"{indent_str}{node!r}"
+
 
 def main():
     if len(sys.argv) < 2:
@@ -16,21 +42,28 @@ def main():
     with open(source_file, 'r') as f:
         source_code = f.read()
 
-    # Compile the source code into assembly using your call_compiler pipeline.
-    # This function should return a string containing the x86 assembly code.
-    assembly_code = call_compiler(source_code, source_file)
+    from compiler import tokenizer, parser, type_checker, ir_generator
+    from compiler.assembly_generator import generate_assembly
+    from compiler.assembler import assemble_and_get_executable
 
-    # Name for the generated executable
-    executable_file = "program.out"
-
-    # Assemble the code into an executable file.
-    # Set link_with_c=True if you need to link against the C standard library.
-    assemble(assembly_code, executable_file, link_with_c=True)
+    # Run compilation pipeline
+    tokens = tokenizer.tokenize(source_code)
+    ast_root = parser.parse(tokens)
+    print(pretty_print(ast_root))
+    type_checker.typecheck(ast_root)
+    root_types = ir_generator.setup_root_types()
+    ir_instructions = ir_generator.generate_ir(
+        root_types=root_types, root_expr=ast_root)
+    
+    print(ir_instructions)
+    asm_code = generate_assembly(ir_instructions)
+    print(asm_code)
+    executable_file = assemble(asm_code, "./test.out")
 
     print("Executable '{}' generated successfully.".format(executable_file))
 
     # Run the executable and capture its output
-    result = subprocess.run(["./" + executable_file],
+    result = subprocess.run(["./" + "test.out"],
                             capture_output=True, text=True)
     print("Program output:")
     print(result.stdout)

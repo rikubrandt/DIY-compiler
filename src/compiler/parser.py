@@ -140,7 +140,7 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
         if token.text == "while":
             return parse_while()
         if token.type == "identifier":
-            consume()  # consume the identifier
+            consume()
             if peek().text == "(":
                 return parse_function(token.text)
             return ast_nodes.Identifier(name=token.text, location=token.loc)
@@ -160,71 +160,85 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
         return parse_primary(allow_decl)
 
     def parse_expression(precedence_level: int = 0, allow_decl: bool = False) -> ast_nodes.Expression:
-
-        total_levels = len(LEFT_ASSOCIATIVE_BINARY_OPERATORS) + \
-            len(RIGHT_ASSOCIATIVE_OPERATORS)
+        total_levels = len(LEFT_ASSOCIATIVE_BINARY_OPERATORS) + len(RIGHT_ASSOCIATIVE_OPERATORS)
+        
         if precedence_level >= total_levels:
             return parse_unary(allow_decl)
-
-        # Left-associative operators.
-        if precedence_level < len(LEFT_ASSOCIATIVE_BINARY_OPERATORS):
-            # Propagate allow_decl into the left operand.
+            
+        if precedence_level == 0:
             left = parse_expression(precedence_level + 1, allow_decl)
-            operators = LEFT_ASSOCIATIVE_BINARY_OPERATORS[precedence_level]
-            while peek().text in operators:
+            
+            if peek().text in RIGHT_ASSOCIATIVE_OPERATORS[0]:
                 op_token = consume()
-                # After an operator, declarations are not allowed.
-                right = parse_expression(
-                    precedence_level + 1, allow_decl=False)
-                left = ast_nodes.BinaryOp(left, op_token.text,
-                                          right, location=op_token.loc)
-            return left
-
-        # Right-associative operators.
-        elif precedence_level - len(LEFT_ASSOCIATIVE_BINARY_OPERATORS) < len(RIGHT_ASSOCIATIVE_OPERATORS):
-            operators = RIGHT_ASSOCIATIVE_OPERATORS[precedence_level - len(
-                LEFT_ASSOCIATIVE_BINARY_OPERATORS)]
-            left = parse_expression(precedence_level + 1, allow_decl)
-            if peek().text in operators:
-                op_token = consume()
+                # Recursively parse at the same precedence level (right associative)
                 right = parse_expression(precedence_level, allow_decl=False)
-                left = ast_nodes.BinaryOp(left, op_token.text,
-                                          right, location=op_token.loc)
+                left = ast_nodes.BinaryOp(left, op_token.text, right, location=op_token.loc)
             return left
-        return parse_unary(allow_decl)
+        
+        else:
+            level = precedence_level - 1
+            
+            if level < len(LEFT_ASSOCIATIVE_BINARY_OPERATORS):
+                left = parse_expression(precedence_level + 1, allow_decl)
+                operators = LEFT_ASSOCIATIVE_BINARY_OPERATORS[level]
+                
+                while peek().text in operators:
+                    op_token = consume()
+                    right = parse_expression(precedence_level + 1, allow_decl=False)
+                    left = ast_nodes.BinaryOp(left, op_token.text, right, location=op_token.loc)
+                return left
+            
+            return parse_unary(allow_decl)
+
+
 
     if len(tokens) == 0:
         return None
-    expr = parse_expression(0, allow_decl=True)
-    if pos < len(tokens):
+
+
+
+
+    top_level_statements: list[ast_nodes.Expression] = [parse_expression(0, allow_decl=True)]
+    while pos < len(tokens) and peek().type != "end":
         if peek().text == ";":
-            # We have encountered at least one semicolon.
-            statements = [expr]
-            while pos < len(tokens) and peek().text == ";":
-                consume(";")
-                # If there's an expression after the semicolon, parse and add it.
-                if pos < len(tokens) and peek().type != "end":
-                    stmt = parse_expression(0, allow_decl=True)
-                    statements.append(stmt)
-            if pos < len(tokens):
-                raise Exception(
-                    f'{peek().loc}: unexpected token "{peek().text}"')
-            # If there's only one statement, it means there was a trailing semicolon with no final expression.
-            # In that case, force the overall result to Unit.
-            if len(statements) == 1:
-                expr = ast_nodes.Block(
-                    expressions=statements,
-                    result=ast_nodes.Literal(
-                        value=None, type=Unit, location=statements[0].location),
-                    location=statements[0].location
-                )
+            consume(";")
+            # If there is another expression, add it.
+            if pos < len(tokens) and peek().type != "end":
+                top_level_statements.append(parse_expression(0, allow_decl=True))
             else:
-                # Otherwise, if there is more than one statement, the last one is taken as the result.
-                expr = ast_nodes.Block(
-                    expressions=statements[:-1],
-                    result=statements[-1],
-                    location=statements[0].location
-                )
+                top_level_statements.append(ast_nodes.Literal(value=None, type=Unit, location=top_level_statements[-1].location))
         else:
-            raise Exception(f'{peek().loc}: unexpected token "{peek().text}"')
-    return expr
+            # No semicolon between expressions.
+            
+            # Check if the next token is the start of a valid top-level construct
+            is_valid_next_token = False
+            
+            # Case 1: After a block, if, or while
+            if isinstance(top_level_statements[-1], (ast_nodes.Block, ast_nodes.IfExpression, ast_nodes.WhileLoop)):
+                is_valid_next_token = True
+            # Case 2: If the next token is an identifier at the end of the program
+            elif peek().type == "identifier" and pos + 1 >= len(tokens):
+                is_valid_next_token = True
+            # Case 3: If the next token is the start of a function call (likely print_bool, print_int, etc.)
+            elif peek().type == "identifier" and pos + 1 < len(tokens) and tokens[pos + 1].text == "(":
+                is_valid_next_token = True
+            # Case 4: If the previous token had 'or' or 'and' operators
+            elif any(isinstance(expr, ast_nodes.BinaryOp) and expr.op in ['or', 'and'] 
+                    for expr in top_level_statements):
+                is_valid_next_token = True
+                
+            if is_valid_next_token:
+                top_level_statements.append(parse_expression(0, allow_decl=True))
+            else:
+                raise Exception(f'{peek().loc}: unexpected token "{peek().text}"')
+
+    # If there's just one top-level expression, return it directly.
+    # Otherwise, combine them into a Block.
+    if len(top_level_statements) == 1:
+        return top_level_statements[0]
+    else:
+        return ast_nodes.Block(
+            expressions=top_level_statements[:-1],
+            result=top_level_statements[-1],
+            location=top_level_statements[0].location
+        )

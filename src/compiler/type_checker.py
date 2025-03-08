@@ -35,11 +35,21 @@ def create_global_env() -> TypeEnv:
 
 
 def typecheck(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
-
+    
+    # Helper to typecheck blocks
+    def _typecheck_with_env(n: ast_nodes.Expression, new_env: TypeEnv) -> Any:
+        nonlocal env
+        old_env = env
+        env = new_env
+        result = _typecheck(n)
+        env = old_env
+        return result
+    
     if env is None:
         env = create_global_env()
 
     def _typecheck(n: ast_nodes.Expression) -> Any:
+        
         match n:
 
             # Literals
@@ -74,7 +84,7 @@ def typecheck(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
             case ast_nodes.BinaryOp(left=left, op=op, right=right):
                 t_left = _typecheck(left)
                 t_right = _typecheck(right)
-                if op in ["+", "-", "*", "/"]:
+                if op in ["+", "-", "*", "/", "%"]:
                     if t_left is not Int or t_right is not Int:
                         raise Exception(
                             f"Operator {op} requires int operands, got {t_left} and {t_right}")
@@ -159,8 +169,8 @@ def typecheck(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
                 new_env = TypeEnv(env)
 
                 for e in expressions:
-                    _typecheck(e)
-                t_result = _typecheck(result)
+                    _typecheck_with_env(e, new_env)
+                t_result = _typecheck_with_env(result, new_env)
                 t = t_result
 
             # Func calls

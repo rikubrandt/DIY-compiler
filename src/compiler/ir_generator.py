@@ -192,6 +192,7 @@ def generate_ir(
                     var_left = visit(st, expr.left)
                     var_right = visit(st, expr.right)
                     var_result = new_var(expr.type)
+                    
                     ins.append(Call(
                         loc, var_op, [var_left, var_right], var_result))
                     return var_result
@@ -210,31 +211,19 @@ def generate_ir(
 
             case ast_nodes.IfExpression():
                 if expr.else_side is None:
-                    # Create (but don't emit) some jump targets.
                     l_then = new_label()
                     l_end = new_label()
 
-                    # Recursively emit instructions for
-                    # evaluating the condition.
                     var_cond = visit(st, expr.if_side)
-                    # Emit a conditional jump instruction
-                    # to jump to 'l_then' or 'l_end',
-                    # depending on the content of 'var_cond'.
                     ins.append(CondJump(loc, var_cond, l_then, l_end))
 
-                    # Emit the label that marks the beginning of
-                    # the "then" branch.
                     ins.append(l_then)
-                    # Recursively emit instructions for the "then" branch.
                     visit(st, expr.then)
 
                     ins.append(l_end)
 
-                    # An if-then expression doesn't return anything, so we
-                    # return a special variable "unit".
                     return var_unit
                 else:
-                    # If-then-else case
                     l_then = new_label()
                     l_else = new_label()
                     l_end = new_label()
@@ -243,7 +232,6 @@ def generate_ir(
                     var_cond = visit(st, expr.if_side)
                     ins.append(CondJump(loc, var_cond, l_then, l_else))
 
-                    # Create a result variable based on the type of the then branch
                     var_result = new_var(expr.type)
 
                     # Then branch
@@ -263,15 +251,12 @@ def generate_ir(
                     return var_result
 
             case ast_nodes.WhileLoop():
-                # Create labels for the loop
                 l_cond = new_label()
                 l_body = new_label()
                 l_end = new_label()
 
-                # Jump to the condition evaluation
                 ins.append(Jump(loc, l_cond))
 
-                # Condition evaluation
                 ins.append(l_cond)
                 var_cond = visit(st, expr.condition)
                 ins.append(CondJump(loc, var_cond, l_body, l_end))
@@ -301,10 +286,12 @@ def generate_ir(
             case ast_nodes.VarDeclaration():
                 # Evaluate the initial value
                 var_init = visit(st, expr.value)
+                if expr.name in st.locals:
+                    raise Exception(f"{loc}: variable '{expr.name}' already declared in this scope")
 
                 # Create a new IR variable for this declaration
                 var_decl = new_var(expr.type)
-
+            
                 # Add the variable to the symbol table
                 st.add_local(expr.name, var_decl)
 
@@ -330,21 +317,13 @@ def generate_ir(
 
                 return var_result
 
-    # Convert 'root_types' into a SymTab
-    # that maps all available global names to
-    # IR variables of the same name.
-    # In the Assembly generator stage, we will give
-    # definitions for these globals. For now,
-    # they just need to exist.
     root_symtab = SymTab(parent=None)
     for v in root_types.keys():
         root_symtab.add_local(v.name, v)
 
-    # Start visiting the AST from the root.
     var_final_result = visit(root_symtab, root_expr)
 
-    # Add a call to print the final result only if its type is Int or Bool
-    # (i.e. only if the overall expression isn’t a statement that discards its value).
+    # Print the final result only if its type is Int or Bool
     if var_types[var_final_result] == Int:
         var_print_int = root_symtab.require("print_int")
         var_print_result = new_var(Unit)
@@ -355,7 +334,6 @@ def generate_ir(
         var_print_result = new_var(Unit)
         ins.append(Call(root_expr.location, var_print_bool,
                         [var_final_result], var_print_result))
-    # Otherwise (if the final type is Unit) do nothing.
 
     return ins
 
