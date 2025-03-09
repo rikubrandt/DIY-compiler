@@ -75,7 +75,8 @@ def generate_ir(
         loop_end_labels = []
         loop_cond_labels = []
         ins = []
-        
+        visit.function_end_label = new_label()
+
         function_symtab = SymTab(parent=None)
         
         for v in root_types.keys():
@@ -99,7 +100,8 @@ def generate_ir(
             function_symtab.add_local("return", ret_var)
 
             result_var = visit(function_symtab, function_def.body)
-                
+            ins.append(visit.function_end_label)
+    
         else:
             # This is the "main" function with top-level expressions
             if not root_module.expressions:
@@ -222,7 +224,14 @@ def generate_ir(
                     var_op = st.require(expr.op)
                     var_left = visit(st, expr.left)
                     var_right = visit(st, expr.right)
-                    var_result = new_var(expr.type)
+                    
+                    # Determine result type based on operator
+                    if expr.op in ["<", "<=", ">", ">=", "==", "!="]:
+                        result_type = Bool
+                    else:  # Arithmetic operations
+                        result_type = Int
+                    
+                    var_result = new_var(result_type)
                     
                     ins.append(Call(
                         loc, var_op, [var_left, var_right], var_result))
@@ -234,7 +243,13 @@ def generate_ir(
 
                 var_operand = visit(st, expr.operand)
 
-                var_result = new_var(expr.type)
+                # Determine result type based on operator
+                if expr.op == "not":
+                    result_type = Bool
+                else:  # Unary "-"
+                    result_type = Int
+                    
+                var_result = new_var(result_type)
 
                 ins.append(Call(loc, var_op, [var_operand], var_result))
 
@@ -263,7 +278,15 @@ def generate_ir(
                     var_cond = visit(st, expr.if_side)
                     ins.append(CondJump(loc, var_cond, l_then, l_else))
 
-                    var_result = new_var(expr.type)
+                    # Determine result type from branches
+                    if hasattr(expr.then, 'type') and expr.then.type != Unit:
+                        result_type = expr.then.type
+                    elif hasattr(expr.else_side, 'type') and expr.else_side.type != Unit:
+                        result_type = expr.else_side.type
+                    else:
+                        result_type = Unit
+                        
+                    var_result = new_var(result_type)
 
                     # Then branch
                     ins.append(l_then)
@@ -280,12 +303,14 @@ def generate_ir(
                     ins.append(l_end)
 
                     return var_result
+                    
             case ast_nodes.BreakStatement():
                 if not loop_end_labels:
                     raise Exception(f"Break statement outside of loop.")
                 # Break out of last loop
                 ins.append(Jump(loc, loop_end_labels[-1]))
                 return var_unit
+                
             case ast_nodes.ContinueStatement():
                 if not loop_cond_labels:
                     raise Exception(f"Continue statement outside of loop.")
@@ -314,7 +339,6 @@ def generate_ir(
                 # End of while loop
                 ins.append(l_end)
 
-
                 # Pop when done
                 loop_end_labels.pop()
                 loop_cond_labels.pop()
@@ -340,7 +364,11 @@ def generate_ir(
                     raise Exception(f"{loc}: variable '{expr.name}' already declared in this scope")
 
                 # Create a new IR variable for this declaration
-                var_decl = new_var(expr.type)
+                var_type = expr.type
+                if var_type == Unit and hasattr(expr.value, 'type'):
+                    var_type = expr.value.type
+                    
+                var_decl = new_var(var_type)
             
                 st.add_local(expr.name, var_decl)
 
@@ -355,13 +383,26 @@ def generate_ir(
                 # Evaluate all arguments
                 arg_vars = [visit(st, arg) for arg in expr.argument_list]
 
-                # Create result variable
-                var_result = new_var(expr.type)
+                # Determine result type
+                if func_name in ["print_int", "print_bool"]:
+                    result_type = Unit
+                else:
+                    # Try to get result type from function type
+                    func_type = var_types.get(var_func)
+                    if isinstance(func_type, FunType):
+                        result_type = func_type.ret
+                    else:
+                        # Default to Int for user-defined functions
+                        result_type = Int
+                    
+                # Create result variable with correct type
+                var_result = new_var(result_type)
 
                 # Emit call instruction
                 ins.append(Call(loc, var_func, arg_vars, var_result))
 
                 return var_result
+                
             case ast_nodes.ReturnStatement():
                 ret_var = st.require("return")
                 
@@ -372,6 +413,9 @@ def generate_ir(
                 else:
                     # Return without value (Unit)
                     ins.append(Copy(loc, var_unit, ret_var))
+                    
+                # Jump to function end label
+                ins.append(Jump(loc, visit.function_end_label))
                 
                 return var_unit
     
