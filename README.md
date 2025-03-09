@@ -98,7 +98,7 @@ while (result < 100) {
 print_int_twice(result);
 
 
-
+```
 
 ## Setup
 
