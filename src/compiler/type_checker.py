@@ -1,4 +1,6 @@
 import compiler.ast_nodes as ast_nodes
+from compiler.ast_nodes import BreakStatement
+
 from compiler.types_compiler import Int, Type, Unit, Bool, FunType
 from typing import Optional, Any
 
@@ -34,7 +36,7 @@ def create_global_env() -> TypeEnv:
     return env
 
 
-def typecheck(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
+def typecheck_expressions(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
     
     # Helper to typecheck blocks
     def _typecheck_with_env(n: ast_nodes.Expression, new_env: TypeEnv) -> Any:
@@ -48,10 +50,20 @@ def typecheck(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
     if env is None:
         env = create_global_env()
 
-    def _typecheck(n: ast_nodes.Expression) -> Any:
-        
-        match n:
+    loop_depth = 0 
 
+    def _typecheck(n: ast_nodes.Expression) -> Any:
+        nonlocal loop_depth
+
+        match n:
+            case ast_nodes.BreakStatement():
+                if loop_depth <= 0:
+                    raise Exception(f"Break statement in {n.location} is not inside loop.")
+                t = Unit
+            case ast_nodes.ContinueStatement():
+                if loop_depth <= 0:
+                    raise Exception(f"Continue statement in {n.location} is not inside loop.")
+                t = Unit
             # Literals
             case ast_nodes.Literal(value=value):
                 if isinstance(value, bool):
@@ -160,7 +172,9 @@ def typecheck(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
                 if t_cond is not Bool:
                     raise Exception(
                         f"While loops condition must be Bool, got type {t_cond}")
+                loop_depth += 1
                 _typecheck(body)
+                loop_depth -= 1
                 t = Unit
 
             # Blocks
@@ -187,6 +201,30 @@ def typecheck(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
                         raise Exception(
                             f"Argument mismatch with {t_arg}, expected: {expected}")
                 t = fun_type.ret
+            case ast_nodes.ReturnStatement(value=value):
+                try:
+                    # Get expected return type from environment
+                    expected_return_type = env.get("return")
+                    
+                    if value is None:
+                        # Return without value is Unit
+                        actual_return_type = Unit
+                    else:
+                        # Typecheck the return value
+                        actual_return_type = _typecheck(value)
+                    
+                    # Make sure return type matches function's declared return type
+                    if actual_return_type != expected_return_type:
+                        raise Exception(f"Return type mismatch: returning {actual_return_type}, function declares {expected_return_type}")
+                    
+                    # Return statements have the type of their value, not just Unit
+                    t = actual_return_type if value is not None else Unit
+                    n.type = t  # Set the node's type explicitly
+                except Exception as e:
+                    if "Undefined variable return" in str(e):
+                        raise Exception(f"Return statement at {n.location} is outside of a function")
+                    else:
+                        raise e
 
             case _:
                 raise Exception(f"Type checking not implemented for {n}")
@@ -196,3 +234,65 @@ def typecheck(node: ast_nodes.Expression, env: TypeEnv | None = None) -> Type:
         return t
 
     return _typecheck(node)
+
+def convert_str_to_type(type_str: str) -> Type:
+    """Convert a type string to a Type object"""
+    if type_str == "Int":
+        return Int
+    elif type_str == "Bool":
+        return Bool
+    elif type_str == "Unit":
+        return Unit
+    else:
+        raise Exception(f"Unknown type: {type_str}")
+
+def typecheck_function(func_def: ast_nodes.FunctionDefinition, env: TypeEnv) -> FunType:
+    """Typecheck a function definition and return its type"""
+    # Create function environment with parent scope
+    func_env = TypeEnv(env)
+    
+    # Convert parameter types and add to function environment
+    param_types: list[Type] = []
+    for param in func_def.parameters:
+        param_type = convert_str_to_type(param.param_type)
+        param_types.append(param_type)
+        # Add parameter to function environment
+        func_env.set(param.name, param_type)
+    
+    # Convert return type
+    return_type = convert_str_to_type(func_def.return_type)
+    
+    # Add a special 'return' variable to track return statements
+    func_env.set("return", return_type)
+    
+    # Typecheck function body
+    body_type = typecheck_expressions(func_def.body, func_env)
+    
+    # Verify return type matches body type
+    if body_type != return_type:
+        raise Exception(f"Function {func_def.name} has return type {return_type}, but body has type {body_type}")
+    
+    # Create and return function type
+    return FunType(param_types, return_type)
+
+
+def typecheck(module: ast_nodes.Module, env: TypeEnv | None = None) -> Type:
+    
+    env = create_global_env()
+    #Add func signatures to env
+    for func_def in module.function_definitions:
+        param_types = [convert_str_to_type(param.param_type) for param in func_def.parameters]
+        return_type = convert_str_to_type(func_def.return_type)
+        func_type = FunType(param_types, return_type)
+        env.set(func_def.name, func_type)
+
+    # Typecheck func bodies
+    for func_def in module.function_definitions:
+        typecheck_function(func_def, env)
+
+    result_type = Unit
+    # Typecheck top-level expressions
+    for expr in module.expressions:
+        result_type = typecheck_expressions(expr, env)
+    
+    return result_type

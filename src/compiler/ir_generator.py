@@ -6,8 +6,6 @@ from compiler.types_compiler import Int, Bool, Unit, Type, FunType
 from compiler.tokenizer import SourceLocation
 from typing import Optional
 
-# --- Simple Symbol Table for IR Variables ---
-
 
 class SymTab:
     def __init__(self, parent=None):
@@ -31,58 +29,107 @@ class SymTab:
         return value
 
 
-# IR Generator implementation
+def convert_str_to_type(type_str: str) -> Type:
+    """Convert a type string to a Type object"""
+    if type_str == "Int":
+        return Int
+    elif type_str == "Bool":
+        return Bool
+    elif type_str == "Unit":
+        return Unit
+    else:
+        raise Exception(f"Unknown type: {type_str}")
+
+
 def generate_ir(
-    # 'root_types' parameter should map all global names
-    # like 'print_int' and '+' to their types.
     root_types: dict[IRVar, Type],
-    root_expr: ast_nodes.Expression
-) -> list[Instruction]:
+    root_module: ast_nodes.Module
+) -> dict[str, list[Instruction]]:
     var_types: dict[IRVar, Type] = root_types.copy()
-    var_count = 0
+    
+    function_types: dict[str, FunType] = {}
 
-    # 'var_unit' is used when an expression's type is 'Unit'.
-    var_unit = IRVar('unit')
-    var_types[var_unit] = Unit
-
-    label_count = 0
-
-    def new_var(t: Type) -> IRVar:
-        # Create a new unique IR variable and
-        # add it to var_types
+    functions_ir: dict[str, list[Instruction]] = {}
+    
+    def new_var(t: Type, prefix="x") -> IRVar:
         nonlocal var_count
         var_count += 1
-        var = IRVar(f'x{var_count}')
+        var = IRVar(f'{prefix}{var_count}')
         var_types[var] = t
         return var
-
-    def new_label() -> Label:
+    
+    def new_label(loc=None) -> Label:
         nonlocal label_count
         label_count += 1
-        return Label(root_expr.location, f'L{label_count}')
+        if loc is None and root_module.expressions:
+            loc = root_module.expressions[0].location
+        return Label(loc or SourceLocation(), f'L{label_count}')
+    
+    def generate_function_ir(function_name: str, function_def: Optional[ast_nodes.FunctionDefinition] = None) -> list[Instruction]:
+        nonlocal var_count, label_count, var_unit, loop_end_labels, loop_cond_labels, ins
+        
+        var_count = 0
+        label_count = 0
+        var_unit = IRVar('unit')
+        var_types[var_unit] = Unit
+        loop_end_labels = []
+        loop_cond_labels = []
+        ins = []
+        
+        function_symtab = SymTab(parent=None)
+        
+        for v in root_types.keys():
+            function_symtab.add_local(v.name, v)
+        
+        for name, ir_var in function_vars.items():
+            function_symtab.add_local(name, ir_var)
+        
+        if function_def:
+            # Create parameters
+            parameters = []
+            for param in function_def.parameters:
+                param_type = convert_str_to_type(param.param_type)
+                param_var = new_var(param_type, prefix="p")
+                parameters.append(param_var)
+                function_symtab.add_local(param.name, param_var)
+            
+            return_type = convert_str_to_type(function_def.return_type)
 
-    # We collect the IR instructions that we generate
-    # into this list.
-    ins: list[Instruction] = []
+            ret_var = new_var(return_type, prefix="ret")
+            function_symtab.add_local("return", ret_var)
 
-    # This function visits an AST node,
-    # appends IR instructions to 'ins',
-    # and returns the IR variable where
-    # the emitted IR instructions put the result.
-    #
-    # It uses a symbol table to map local variables
-    # (which may be shadowed) to unique IR variables.
-    # The symbol table will be updated in the same way as
-    # in the interpreter and type checker.
+            result_var = visit(function_symtab, function_def.body)
+                
+        else:
+            # This is the "main" function with top-level expressions
+            if not root_module.expressions:
+                return ins  # Return empty instructions list if no expressions
+            
+            # Handle multiple expressions by processing them in sequence
+            var_final_result = None
+            for expr in root_module.expressions:
+                var_final_result = visit(function_symtab, expr)
+            
+            # Only print the final result in main if it has a printable type
+            if var_final_result and var_types[var_final_result] == Int:
+                var_print_int = function_symtab.require("print_int")
+                var_print_result = new_var(Unit)
+                ins.append(Call(root_module.location, var_print_int,
+                              [var_final_result], var_print_result))
+            elif var_final_result and var_types[var_final_result] == Bool:
+                var_print_bool = function_symtab.require("print_bool")
+                var_print_result = new_var(Unit)
+                ins.append(Call(root_module.location, var_print_bool,
+                              [var_final_result], var_print_result))
+        
+        return ins
+    
     def visit(st: SymTab, expr: ast_nodes.Expression) -> IRVar:
         loc = expr.location
 
         match expr:
             case ast_nodes.Literal():
-                # Create an IR variable to hold the value,
-                # and emit the correct instruction to
                 # load the constant value.
-                print(expr.type)
                 if expr.type == Unit:
                     return var_unit
                 match expr.value:
@@ -100,13 +147,9 @@ def generate_ir(
                         raise Exception(
                             f"{loc}: unsupported literal: {type(expr.value)}")
 
-                # Return the variable that holds
-                # the loaded value.
                 return var
 
             case ast_nodes.Identifier():
-                # Look up the IR variable that corresponds to
-                # the source code variable.
                 return st.require(expr.name)
 
             case ast_nodes.BinaryOp():
@@ -122,35 +165,23 @@ def generate_ir(
                     # Evaluate the right-hand side
                     source_var = visit(st, expr.right)
 
-                    # Copy the value
                     ins.append(Copy(loc, source_var, dest_var))
 
-                    # Return the destination variable
                     return dest_var
 
-                # Special handling for short-circuit operators
                 elif expr.op == "and":
-                    # Create a result variable
                     result_var = new_var(Bool)
 
-                    # Evaluate the left operand
                     left_var = visit(st, expr.left)
 
-                    # Create labels for evaluating the right operand and for the short-circuit branch when left is false
-                    # When left is true, evaluate right operand.
-                    label_eval_right = new_label()
-                    # When left is false, short-circuit (result remains false).
-                    label_short_circuit = new_label()
-                    # Join point after both branches.
-                    label_end = new_label()
+                    label_eval_right = new_label(loc)
+                    label_short_circuit = new_label(loc)
+                    label_end = new_label(loc)
 
-                    # Copy the left operand into the result (in case it's false).
                     ins.append(Copy(loc, left_var, result_var))
-                    # If left is true, jump to label_eval_right; otherwise, if false, jump to label_short_circuit.
                     ins.append(
                         CondJump(loc, left_var, label_eval_right, label_short_circuit))
 
-                    # Right evaluation branch: left was true.
                     ins.append(label_eval_right)
                     right_var = visit(st, expr.right)
                     ins.append(Copy(loc, right_var, result_var))
@@ -169,9 +200,9 @@ def generate_ir(
 
                     left_var = visit(st, expr.left)
 
-                    label_short_circuit = new_label()
-                    label_eval_right = new_label()
-                    label_end = new_label()
+                    label_short_circuit = new_label(loc)
+                    label_eval_right = new_label(loc)
+                    label_end = new_label(loc)
 
                     ins.append(Copy(loc, left_var, result_var))
                     ins.append(
@@ -211,8 +242,8 @@ def generate_ir(
 
             case ast_nodes.IfExpression():
                 if expr.else_side is None:
-                    l_then = new_label()
-                    l_end = new_label()
+                    l_then = new_label(loc)
+                    l_end = new_label(loc)
 
                     var_cond = visit(st, expr.if_side)
                     ins.append(CondJump(loc, var_cond, l_then, l_end))
@@ -224,9 +255,9 @@ def generate_ir(
 
                     return var_unit
                 else:
-                    l_then = new_label()
-                    l_else = new_label()
-                    l_end = new_label()
+                    l_then = new_label(loc)
+                    l_else = new_label(loc)
+                    l_end = new_label(loc)
 
                     # Evaluate the condition
                     var_cond = visit(st, expr.if_side)
@@ -249,11 +280,25 @@ def generate_ir(
                     ins.append(l_end)
 
                     return var_result
-
+            case ast_nodes.BreakStatement():
+                if not loop_end_labels:
+                    raise Exception(f"Break statement outside of loop.")
+                # Break out of last loop
+                ins.append(Jump(loc, loop_end_labels[-1]))
+                return var_unit
+            case ast_nodes.ContinueStatement():
+                if not loop_cond_labels:
+                    raise Exception(f"Continue statement outside of loop.")
+                ins.append(Jump(loc, loop_cond_labels[-1]))
+                return var_unit
+        
             case ast_nodes.WhileLoop():
-                l_cond = new_label()
-                l_body = new_label()
-                l_end = new_label()
+                l_cond = new_label(loc)
+                l_body = new_label(loc)
+                l_end = new_label(loc)
+
+                loop_cond_labels.append(l_cond)
+                loop_end_labels.append(l_end)
 
                 ins.append(Jump(loc, l_cond))
 
@@ -268,6 +313,11 @@ def generate_ir(
 
                 # End of while loop
                 ins.append(l_end)
+
+
+                # Pop when done
+                loop_end_labels.pop()
+                loop_cond_labels.pop()
 
                 # While loops return Unit
                 return var_unit
@@ -292,17 +342,13 @@ def generate_ir(
                 # Create a new IR variable for this declaration
                 var_decl = new_var(expr.type)
             
-                # Add the variable to the symbol table
                 st.add_local(expr.name, var_decl)
 
-                # Copy the initial value
                 ins.append(Copy(loc, var_init, var_decl))
 
-                # Return the new variable
                 return var_unit
 
             case ast_nodes.FunctionCall():
-                # Get the function variable
                 func_name = expr.name.name
                 var_func = st.require(func_name)
 
@@ -316,26 +362,51 @@ def generate_ir(
                 ins.append(Call(loc, var_func, arg_vars, var_result))
 
                 return var_result
-
-    root_symtab = SymTab(parent=None)
-    for v in root_types.keys():
-        root_symtab.add_local(v.name, v)
-
-    var_final_result = visit(root_symtab, root_expr)
-
-    # Print the final result only if its type is Int or Bool
-    if var_types[var_final_result] == Int:
-        var_print_int = root_symtab.require("print_int")
-        var_print_result = new_var(Unit)
-        ins.append(Call(root_expr.location, var_print_int,
-                        [var_final_result], var_print_result))
-    elif var_types[var_final_result] == Bool:
-        var_print_bool = root_symtab.require("print_bool")
-        var_print_result = new_var(Unit)
-        ins.append(Call(root_expr.location, var_print_bool,
-                        [var_final_result], var_print_result))
-
-    return ins
+            case ast_nodes.ReturnStatement():
+                ret_var = st.require("return")
+                
+                if expr.value is not None:
+                    val_var = visit(st, expr.value)
+                    
+                    ins.append(Copy(loc, val_var, ret_var))
+                else:
+                    # Return without value (Unit)
+                    ins.append(Copy(loc, var_unit, ret_var))
+                
+                return var_unit
+    
+    # First pass: Process function types and create function variables
+    function_vars = {}
+    
+    for func_def in root_module.function_definitions:
+        param_types = [convert_str_to_type(param.param_type) for param in func_def.parameters]
+        return_type = convert_str_to_type(func_def.return_type)
+        func_type = FunType(param_types, return_type)
+        function_types[func_def.name] = func_type
+        func_var = IRVar(func_def.name)
+        var_types[func_var] = func_type
+        function_vars[func_def.name] = func_var
+    
+    # Second pass: Generate IR for each function
+    for func_def in root_module.function_definitions:
+        # Init variables for this function
+        var_count = 0
+        label_count = 0
+        var_unit = IRVar('unit')
+        var_types[var_unit] = Unit
+        loop_end_labels = []
+        loop_cond_labels = []
+        ins = []
+        
+        function_ir = generate_function_ir(func_def.name, func_def)
+        
+        # Store function IR
+        functions_ir[func_def.name] = function_ir
+    
+    # Finally, process main func (top-level expressions)
+    functions_ir["main"] = generate_function_ir("main")
+    
+    return functions_ir
 
 
 def setup_root_types() -> dict[IRVar, Type]:

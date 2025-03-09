@@ -16,7 +16,7 @@ RIGHT_ASSOCIATIVE_OPERATORS = [
 ]
 
 
-def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
+def parse(tokens: list[Token]) -> ast_nodes.Module | None:
     pos = 0
 
     def peek() -> Token:
@@ -40,6 +40,63 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
                         f'{token.loc}: expected one of: {comma_separated}, found "{token.text}"')
         pos += 1
         return token
+        
+    def parse_parameter() -> ast_nodes.Parameter:
+        """Parse a function parameter: name: Type"""
+        param_token = consume()
+        if param_token.type != "identifier":
+            raise Exception(f'{param_token.loc}: expected parameter name, found "{param_token.text}"')
+        
+        consume(":")
+        type_token = consume()
+        if type_token.text not in ["Int", "Bool", "Unit"]:
+            raise Exception(
+                f'{type_token.loc}: expected type (Int, Bool, Unit), found "{type_token.text}"')
+        
+        return ast_nodes.Parameter(name=param_token.text, param_type=type_token.text, location=param_token.loc)
+    
+    def parse_function_definition() -> ast_nodes.FunctionDefinition:
+        """Parse a function definition: fun name(param1: Type, ...): ReturnType { ... }"""
+        start_token = consume("fun")
+        
+        # Parse function name
+        name_token = consume()
+        if name_token.type != "identifier":
+            raise Exception(f'{name_token.loc}: expected function name, found "{name_token.text}"')
+        
+        # Parse parameters
+        consume("(")
+        parameters: list[ast_nodes.Parameter] = []
+        
+        if peek().text != ")":  # If not empty parameter list
+            while True:
+                param = parse_parameter()
+                parameters.append(param)
+                
+                if peek().text == ")":
+                    break
+                    
+                consume(",")  # Parameters are comma-separated
+        
+        consume(")")
+        
+        # Parse return type
+        consume(":")
+        return_type_token = consume()
+        if return_type_token.text not in ["Int", "Bool", "Unit"]:
+            raise Exception(
+                f'{return_type_token.loc}: expected return type (Int, Bool, Unit), found "{return_type_token.text}"')
+        
+        # Parse function body (a block)
+        body = parse_block()
+        
+        return ast_nodes.FunctionDefinition(
+            name=name_token.text,
+            parameters=parameters,
+            return_type=return_type_token.text,
+            body=body,
+            location=start_token.loc
+        )
 
     def parse_variable_declaration(allow_decl: bool) -> ast_nodes.VarDeclaration:
         start_token = consume("var")
@@ -79,29 +136,58 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
     def parse_block() -> ast_nodes.Block:
         start_token = consume("{")
         statements: list[ast_nodes.Expression] = []
-        trailing_semicolon = False
-        # In blocks, declarations are allowed.
-        while peek().text != "}":
+        
+        if peek().text == "}":
+            consume("}")
+            return ast_nodes.Block(
+                expressions=[],
+                result=ast_nodes.Literal(value=None, type=Unit, location=start_token.loc),
+                location=start_token.loc
+            )
+        
+        while True:
             stmt = parse_expression(0, allow_decl=True)
             statements.append(stmt)
+            
+            if peek().text == "}":
+                break
+                
+            can_skip_semicolon = isinstance(stmt, (ast_nodes.Block, ast_nodes.IfExpression, 
+                                                ast_nodes.WhileLoop))
+            
             if peek().text == ";":
                 consume(";")
-                trailing_semicolon = True
-            else:
-                trailing_semicolon = False
-                # For non-control-flow statements, a semicolon is required.
-                if peek().text != "}" and not isinstance(stmt, (ast_nodes.Block, ast_nodes.IfExpression, ast_nodes.WhileLoop)):
-                    raise Exception(
-                        f"Missing semicolon before '{peek().text}'")
+                if peek().text == "}":
+                    statements.append(ast_nodes.Literal(value=None, type=Unit, location=stmt.location))
+                    break
+            elif not can_skip_semicolon:
+                raise Exception(f"Missing semicolon after '{tokens[pos-1].text}' before '{peek().text}'")
+        
         consume("}")
-
-        # If there is a trailing semicolon or the block is empty, the result is Literal(None).
-        if trailing_semicolon or not statements:
-            result = ast_nodes.Literal(value=None)
+        
+        if not statements:
+            result = ast_nodes.Literal(value=None, type=Unit, location=start_token.loc)
         else:
             result = statements.pop()
-            assert isinstance(result, ast_nodes.Expression)
+            
         return ast_nodes.Block(expressions=statements, result=result, location=start_token.loc)
+
+
+
+    def parse_return() -> ast_nodes.ReturnStatement:
+        """Parse a return statement: return expr;"""
+        start_token = consume("return")
+        
+        if peek().text != ";":
+            value = parse_expression(0, allow_decl=False)
+            # Return statements must be followed by a semicolon
+            if peek().text != ";":
+                raise Exception(f"Expected semicolon after return statement, found {peek().text}")
+            consume(";")
+            return ast_nodes.ReturnStatement(value=value, location=start_token.loc)
+        else:
+            consume(";")
+            return ast_nodes.ReturnStatement(location=start_token.loc)
 
     def parse_function(name: str) -> ast_nodes.FunctionCall:
         start_token = consume("(")
@@ -123,7 +209,7 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
         consume(")")
         return expr
 
-    # Primary expressions: literals, identifiers, parenthesized expressions, if, while, blocks, variable declarations.
+    # Primary expressions:
     def parse_primary(allow_decl: bool = False) -> ast_nodes.Expression:
         token = peek()
         if token.text == "var":
@@ -131,6 +217,8 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
                 raise Exception(
                     f'{token.loc}: variable declarations are not allowed in this context')
             return parse_variable_declaration(allow_decl)
+        if token.text == "return":
+            return parse_return()
         if token.text == "{":
             return parse_block()
         if token.text == "(":
@@ -139,6 +227,12 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
             return parse_if()
         if token.text == "while":
             return parse_while()
+        if token.text == "break":
+            consume()
+            return ast_nodes.BreakStatement()
+        if token.text == "continue":
+            consume()
+            return ast_nodes.ContinueStatement()
         if token.type == "identifier":
             consume()
             if peek().text == "(":
@@ -190,55 +284,73 @@ def parse(tokens: list[Token]) -> ast_nodes.Expression | None:
             
             return parse_unary(allow_decl)
 
+    def can_skip_semicolon(expr) -> bool:
+        """Determine if this expression type can be followed by another expression without a semicolon"""
+    
+        # Basic types that don't need semicolons
+        if isinstance(expr, (ast_nodes.Block, ast_nodes.IfExpression, 
+                            ast_nodes.WhileLoop, ast_nodes.FunctionDefinition)):
+            return True
+        
+        # Special case for binary operations with 'or' and 'and'
+        if isinstance(expr, ast_nodes.BinaryOp) and expr.op in ['or', 'and']:
+            return True
+        
+        # Special case for variable declarations with block values
+        # This handles cases like: var x = { ... } expr
+        if isinstance(expr, ast_nodes.VarDeclaration):
+            if isinstance(expr.value, (ast_nodes.Block, ast_nodes.IfExpression, ast_nodes.WhileLoop)):
+                return True
+        
+        return False
+
+    def parse_module() -> ast_nodes.Module:
+        """Parse a complete module, which may contain function definitions and top-level expressions."""
+        module_loc = tokens[0].loc if tokens else None
+        
+        # Parse function definitions and top-level expressions
+        function_definitions: list[ast_nodes.FunctionDefinition] = []
+        expressions: list[ast_nodes.Expression] = []
+        
+        while pos < len(tokens) and peek().type != "end":
+            # Parse the current top-level item
+            if peek().text == "fun":
+                # Parse function definition
+                func_def = parse_function_definition()
+                function_definitions.append(func_def)
+            else:
+                # Parse top-level expression
+                expr = parse_expression(0, allow_decl=True)
+                expressions.append(expr)
+                
+                # Check if we need a semicolon after this expression
+                if pos < len(tokens) and peek().type != "end":                
+                    # If there's a semicolon, consume it
+                    if peek().text == ";":
+                        consume(";")
+                        # If this is the end of input after semicolon, add Unit
+                        if pos >= len(tokens) or peek().type == "end":
+                            expressions.append(ast_nodes.Literal(value=None, type=Unit, location=expr.location))
+                    # No semicolon, check if that's allowed
+                    elif not can_skip_semicolon(expr):
+                        next_token = peek()
+                        raise Exception(f"{next_token.loc}: Expected semicolon after expression, found '{next_token.text}'")
+        
+        return ast_nodes.Module(
+            function_definitions=function_definitions,
+            expressions=expressions,
+            location=module_loc
+        )
 
 
+
+
+
+
+
+    
     if len(tokens) == 0:
         return None
 
-
-
-
-    top_level_statements: list[ast_nodes.Expression] = [parse_expression(0, allow_decl=True)]
-    while pos < len(tokens) and peek().type != "end":
-        if peek().text == ";":
-            consume(";")
-            # If there is another expression, add it.
-            if pos < len(tokens) and peek().type != "end":
-                top_level_statements.append(parse_expression(0, allow_decl=True))
-            else:
-                top_level_statements.append(ast_nodes.Literal(value=None, type=Unit, location=top_level_statements[-1].location))
-        else:
-            # No semicolon between expressions.
-            
-            # Check if the next token is the start of a valid top-level construct
-            is_valid_next_token = False
-            
-            # Case 1: After a block, if, or while
-            if isinstance(top_level_statements[-1], (ast_nodes.Block, ast_nodes.IfExpression, ast_nodes.WhileLoop)):
-                is_valid_next_token = True
-            # Case 2: If the next token is an identifier at the end of the program
-            elif peek().type == "identifier" and pos + 1 >= len(tokens):
-                is_valid_next_token = True
-            # Case 3: If the next token is the start of a function call (likely print_bool, print_int, etc.)
-            elif peek().type == "identifier" and pos + 1 < len(tokens) and tokens[pos + 1].text == "(":
-                is_valid_next_token = True
-            # Case 4: If the previous token had 'or' or 'and' operators
-            elif any(isinstance(expr, ast_nodes.BinaryOp) and expr.op in ['or', 'and'] 
-                    for expr in top_level_statements):
-                is_valid_next_token = True
-                
-            if is_valid_next_token:
-                top_level_statements.append(parse_expression(0, allow_decl=True))
-            else:
-                raise Exception(f'{peek().loc}: unexpected token "{peek().text}"')
-
-    # If there's just one top-level expression, return it directly.
-    # Otherwise, combine them into a Block.
-    if len(top_level_statements) == 1:
-        return top_level_statements[0]
-    else:
-        return ast_nodes.Block(
-            expressions=top_level_statements[:-1],
-            result=top_level_statements[-1],
-            location=top_level_statements[0].location
-        )
+    # Parse the entire module
+    return parse_module()

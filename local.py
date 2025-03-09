@@ -53,7 +53,7 @@ def main():
     type_checker.typecheck(ast_root)
     root_types = ir_generator.setup_root_types()
     ir_instructions = ir_generator.generate_ir(
-        root_types=root_types, root_expr=ast_root)
+        root_types=root_types, root_module=ast_root)
     
     print(ir_instructions)
     asm_code = generate_assembly(ir_instructions)

@@ -25,7 +25,7 @@ def call_compiler(source_code: str, input_file_name: str) -> bytes:
     type_checker.typecheck(ast_root)
     root_types = ir_generator.setup_root_types()
     ir_instructions = ir_generator.generate_ir(
-        root_types=root_types, root_expr=ast_root)
+        root_types=root_types, root_module=ast_root)
     asm_code = generate_assembly(ir_instructions)
 
     bytes = assemble_and_get_executable(asm_code)

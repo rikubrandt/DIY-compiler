@@ -32,7 +32,7 @@ class Tokenizer:
     TOKEN_PATTERNS = [
         ("comment", re.compile(r"//.*|#.*")),
         ("boolean_literal", re.compile(r"\b(true|false)\b")),
-        ("keyword", re.compile(r"\b(if|then|else|while|do|var|Int|Bool|Unit)\b")),
+        ("keyword", re.compile(r"\b(if|then|else|while|do|continue|break|var|Int|Bool|Unit)\b")),
         ("operator", re.compile(
             r"\b(and|or|not)\b|==|!=|<=|>=|<|>|[+\-*/=%]")),
         ("int_literal", re.compile(r"[0-9]+")),

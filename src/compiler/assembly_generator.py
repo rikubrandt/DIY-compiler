@@ -53,30 +53,48 @@ def get_all_ir_variables(instructions: List[ir.Instruction]) -> List[ir.IRVar]:
     return list(variables)
 
 
-def generate_assembly(instructions: List[ir.Instruction]) -> str:
-    """Generate x86-64 Assembly code from IR instructions."""
+def generate_function_assembly(function_name: str, instructions: List[ir.Instruction], label_prefix) -> List[str]:
+    """Generate assembly code for single func."""
     lines = []
 
     def emit(line: str) -> None:
         lines.append(line)
 
-    # Get all variables used in the program
+    # Get all variables used in the function
     variables = get_all_ir_variables(instructions)
     locals = Locals(variables=variables)
 
-    # Emit initial declarations and stack setup
-    emit(".extern print_int")
-    emit(".extern print_bool")
-    emit(".extern read_int")
-    emit(".global main")
-    emit(".type main, @function")
-    emit("")
-    emit(".section .text")
-    emit("")
-    emit("main:")
+    # Identify parameter variables (assuming they follow your naming convention with 'p' prefix)
+    parameter_vars = sorted([v for v in variables if v.name.startswith('p')], 
+                          key=lambda v: int(v.name[1:]) if v.name[1:].isdigit() else 0)
+    
+    # Find return variable (if any)
+    return_vars = [v for v in variables if v.name.startswith('ret')]
+    return_var = return_vars[0] if return_vars else None
+    
+    # Emit function header
+    if function_name == "main":
+        emit(".global main")
+        emit(".type main, @function")
+        emit("")
+        emit(f"{function_name}:")
+    else:
+        emit(f".global {function_name}")
+        emit(f".type {function_name}, @function")
+        emit("")
+        emit(f"{function_name}:")
+
+    # Function prologue
     emit("    pushq %rbp")
     emit("    movq %rsp, %rbp")
     emit(f"    subq ${locals.stack_used()}, %rsp")
+    
+    # Save parameter registers to their stack locations
+    param_registers = ['%rdi', '%rsi', '%rdx', '%rcx', '%r8', '%r9']
+    for i, param_var in enumerate(parameter_vars[:6]):  # Maximum 6 parameters in registers
+        emit(f"    # Save parameter {i+1} ({param_var.name}) from {param_registers[i]}")
+        emit(f"    movq {param_registers[i]}, {locals.get_ref(param_var)}")
+    
     emit("")
 
     # Process each instruction
@@ -86,7 +104,7 @@ def generate_assembly(instructions: List[ir.Instruction]) -> str:
             case ir.Label():
                 emit("")
                 # ".L" prefix marks the symbol as "private".
-                emit(f'.L{insn.name}:')
+                emit(f'{label_prefix}{insn.name}:')
 
             case ir.LoadIntConst():
                 if -2**31 <= insn.value < 2**31:
@@ -108,15 +126,15 @@ def generate_assembly(instructions: List[ir.Instruction]) -> str:
                 emit(f'    movq %rax, {locals.get_ref(insn.dest)}')
 
             case ir.Jump():
-                emit(f'    jmp .L{insn.label.name}')
+                emit(f'    jmp {label_prefix}{insn.label.name}')
 
             case ir.CondJump():
                 # Compare condition with 0
                 emit(f'    cmpq $0, {locals.get_ref(insn.cond)}')
                 # Jump to then_label if condition is not 0 (true)
-                emit(f'    jne .L{insn.then_label.name}')
+                emit(f'    jne {label_prefix}{insn.then_label.name}')
                 # Otherwise jump to else_label
-                emit(f'    jmp .L{insn.else_label.name}')
+                emit(f'    jmp {label_prefix}{insn.else_label.name}')
 
             case ir.Call():
                 # Check if this is an intrinsic operation
@@ -154,13 +172,43 @@ def generate_assembly(instructions: List[ir.Instruction]) -> str:
                     # Store the return value (%rax) in the destination
                     emit(f'    movq %rax, {locals.get_ref(insn.dest)}')
 
-    # Restore the stack and return
-    emit("")
-    emit("# Return from main")
-    emit("    movq $0, %rax")  # Return value 0
+    # Return value handling
+    if function_name == "main":
+        emit("# Return from main")
+        emit("    movq $0, %rax")  # Return value 0
+    else:
+        emit(f"# Return from {function_name}")
+        # Load return value into %rax if we have one
+        if return_var:
+            emit(f"    movq {locals.get_ref(return_var)}, %rax")
+    
     emit("    movq %rbp, %rsp")
     emit("    popq %rbp")
     emit("    ret")
 
-    # Join all lines and return
-    return '\n'.join(lines)
+    return lines
+
+
+def generate_assembly(functions_ir: Dict[str, List[ir.Instruction]]) -> str:
+    lines = []
+
+    def emit(line: str) -> None:
+        lines.append(line)
+
+    emit(".extern print_int")
+    emit(".extern print_bool")
+    emit(".extern read_int")
+    emit("")
+    emit(".section .text")
+    emit("")
+
+    for i, (function_name, instructions) in enumerate(functions_ir.items()):
+        label_prefix = f".{function_name}_L"
+
+        function_ins = generate_function_assembly(function_name, instructions, label_prefix)
+        lines.extend(function_ins)
+
+        if i < len(functions_ir) - 1:  # Add blank line between functions, but not after the last one
+            emit("")
+    
+    return "\n".join(lines)

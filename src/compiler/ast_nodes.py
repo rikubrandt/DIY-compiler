@@ -64,3 +64,38 @@ class VarDeclaration(Expression):
 class WhileLoop(Expression):
     condition: Expression
     body: Expression
+
+@dataclass()
+class BreakStatement(Expression):
+    ...
+
+@dataclass()
+class ContinueStatement(Expression):
+    ...
+
+
+@dataclass()
+class Parameter:
+    name: str
+    param_type: str
+    location: SourceLocation = field(default=L, compare=False)
+
+
+@dataclass()
+class FunctionDefinition:
+    name: str
+    parameters: list[Parameter]
+    return_type: str
+    body: Expression
+    location: SourceLocation = field(default=L, compare=False)
+
+
+@dataclass()
+class Module:
+    function_definitions: list[FunctionDefinition]
+    expressions: list[Expression]
+    location: SourceLocation = field(default=L, compare=False)
+
+@dataclass()
+class ReturnStatement(Expression):
+    value: Optional[Expression] = None
