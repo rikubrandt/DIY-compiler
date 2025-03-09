@@ -180,15 +180,10 @@ def parse(tokens: list[Token]) -> ast_nodes.Module | None:
         
         if peek().text != ";":
             value = parse_expression(0, allow_decl=False)
-            # Return statements must be followed by a semicolon
-            if peek().text != ";":
-                raise Exception(f"Expected semicolon after return statement, found {peek().text}")
-            consume(";")
+            if peek().text == ";":
+                consume(";")
             return ast_nodes.ReturnStatement(value=value, location=start_token.loc)
-        else:
-            consume(";")
-            return ast_nodes.ReturnStatement(location=start_token.loc)
-
+        
     def parse_function(name: str) -> ast_nodes.FunctionCall:
         start_token = consume("(")
         args: list[ast_nodes.Expression] = []
